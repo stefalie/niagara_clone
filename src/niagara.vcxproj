@@ -118,7 +118,7 @@
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_DEBUG;_CONSOLE;_GLFW_WIN32;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions);</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
     </ClCompile>
     <Link>
@@ -132,7 +132,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>NDEBUG;_CONSOLE;_GLFW_WIN32;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions);</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
     </ClCompile>
     <Link>
@@ -143,7 +143,31 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="..\extern\glfw\src\context.c" />
+    <ClCompile Include="..\extern\glfw\src\egl_context.c" />
+    <ClCompile Include="..\extern\glfw\src\init.c" />
+    <ClCompile Include="..\extern\glfw\src\input.c" />
+    <ClCompile Include="..\extern\glfw\src\monitor.c" />
+    <ClCompile Include="..\extern\glfw\src\osmesa_context.c" />
+    <ClCompile Include="..\extern\glfw\src\vulkan.c" />
+    <ClCompile Include="..\extern\glfw\src\wgl_context.c" />
+    <ClCompile Include="..\extern\glfw\src\win32_init.c" />
+    <ClCompile Include="..\extern\glfw\src\win32_joystick.c" />
+    <ClCompile Include="..\extern\glfw\src\win32_monitor.c" />
+    <ClCompile Include="..\extern\glfw\src\win32_thread.c" />
+    <ClCompile Include="..\extern\glfw\src\win32_time.c" />
+    <ClCompile Include="..\extern\glfw\src\win32_window.c" />
+    <ClCompile Include="..\extern\glfw\src\window.c" />
     <ClCompile Include="niagara.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\extern\glfw\src\egl_context.h" />
+    <ClInclude Include="..\extern\glfw\src\internal.h" />
+    <ClInclude Include="..\extern\glfw\src\mappings.h" />
+    <ClInclude Include="..\extern\glfw\src\osmesa_context.h" />
+    <ClInclude Include="..\extern\glfw\src\wgl_context.h" />
+    <ClInclude Include="..\extern\glfw\src\win32_joystick.h" />
+    <ClInclude Include="..\extern\glfw\src\win32_platform.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
