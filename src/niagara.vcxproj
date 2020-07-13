@@ -101,7 +101,7 @@
     <ClCompile Include="..\extern\glfw\src\win32_time.c" />
     <ClCompile Include="..\extern\glfw\src\win32_window.c" />
     <ClCompile Include="..\extern\glfw\src\window.c" />
-    <ClCompile Include="niagara.c" />
+    <ClCompile Include="niagara.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\extern\glfw\src\egl_context.h" />

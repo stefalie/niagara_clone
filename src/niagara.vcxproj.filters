@@ -63,7 +63,7 @@
     <ClCompile Include="..\extern\glfw\src\osmesa_context.c">
       <Filter>glfw</Filter>
     </ClCompile>
-    <ClCompile Include="niagara.c">
+    <ClCompile Include="niagara.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
