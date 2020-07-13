@@ -1,6 +1,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include <GLFW/glfw3.h>
+#include <vulkan/vulkan.h>
 
 int main()
 {
