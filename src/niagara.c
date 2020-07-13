@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <GLFW/glfw3.h>
 #include <GLFW/glfw3native.h>
@@ -14,10 +15,10 @@
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof(arr[0]))
 
-VkInstance CreateInstance();
+VkInstance CreateInstance(void);
 
 // SHORTUCT: We just go for the first discrete GPU, or, if not available, simply the first GPU.
-VkPhysicalDevice PickPhysicalDevice(VkInstance instance);
+VkPhysicalDevice CreatePhysicalDevice(VkInstance instance);
 
 VkDevice CreateDevice(VkInstance instance, VkPhysicalDevice physical_device, uint32_t* family_index);
 
@@ -25,7 +26,7 @@ VkSurfaceKHR CreateSurface(VkInstance instance, GLFWwindow* window);
 
 VkSwapchainKHR CreateSwapchain(VkPhysicalDevice physical_device/*TODO*/, VkDevice device, VkSurfaceKHR surface, uint32_t family_index, uint32_t width, uint32_t height);
 
-VkSemaphore CreateSemaphore(VkDevice device);
+VkSemaphore CreateVkSemaphore(VkDevice device);
 
 VkCommandPool CreateCommandBufferPool(VkDevice device, uint32_t family_index);
 
@@ -37,14 +38,14 @@ int main()
 	VkInstance instance = CreateInstance();
 	assert(instance);
 
-	VkPhysicalDevice physical_device = PickPhysicalDevice(instance);
+	VkPhysicalDevice physical_device = CreatePhysicalDevice(instance);
 	assert(physical_device);
 
 	uint32_t family_index = 0;
 	VkDevice device = CreateDevice(instance, physical_device, &family_index);
 	assert(device);
 
-	GLFWwindow* window = glfwCreateWindow(1024, 768, "Hello Vulkan", nullptr, nullptr);
+	GLFWwindow* window = glfwCreateWindow(1024, 768, "Hello Vulkan", NULL, NULL);
 	assert(window);
 
 	VkSurfaceKHR surface = CreateSurface(instance, window);
@@ -55,9 +56,9 @@ int main()
 	VkSwapchainKHR swapchain = CreateSwapchain(physical_device, device, surface, family_index, fb_width, fb_height);
 	assert(swapchain);
 
-	VkSemaphore aquire_semaphore = CreateSemaphore(device);
+	VkSemaphore aquire_semaphore = CreateVkSemaphore(device);
 	assert(aquire_semaphore);
-	VkSemaphore release_semaphore = CreateSemaphore(device);
+	VkSemaphore release_semaphore = CreateVkSemaphore(device);
 	assert(release_semaphore);
 
 	VkQueue queue = VK_NULL_HANDLE;
@@ -67,7 +68,7 @@ int main()
 	// TODO: get rid of this.
 	VkImage swapchain_images[16];  // SHORTCUT!
 	uint32_t swapchain_image_count = ARRAY_SIZE(swapchain_images);
-	VK_CHECK(vkGetSwapchainImagesKHR(device, swapchain, &swapchain_image_count, nullptr));
+	VK_CHECK(vkGetSwapchainImagesKHR(device, swapchain, &swapchain_image_count, NULL));
 	VK_CHECK(vkGetSwapchainImagesKHR(device, swapchain, &swapchain_image_count, swapchain_images));
 
 	VkCommandPool cmd_buf_pool = CreateCommandBufferPool(device, family_index);
@@ -95,7 +96,7 @@ int main()
 		VK_CHECK(vkBeginCommandBuffer(cmd_buf, &begin_info));
 
 		VkClearColorValue color = { 1, 0, 1, 1 };
-		VkImageSubresourceRange range = {};
+		VkImageSubresourceRange range = { 0 };
 		range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 		range.levelCount = 1;
 		range.layerCount = 1;
@@ -105,14 +106,26 @@ int main()
 
 		VkPipelineStageFlags submit_stage_mask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 
-		VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
-		submit_info.waitSemaphoreCount = 1;
-		submit_info.pWaitSemaphores = &aquire_semaphore;
-		submit_info.pWaitDstStageMask = &submit_stage_mask;
-		submit_info.pCommandBuffers = &cmd_buf;
-		submit_info.commandBufferCount = 1;
-		submit_info.signalSemaphoreCount = 1;
-		submit_info.pSignalSemaphores = &release_semaphore;
+		//VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
+		//submit_info.waitSemaphoreCount = 1;
+		//submit_info.pWaitSemaphores = &aquire_semaphore;
+		//submit_info.pWaitDstStageMask = &submit_stage_mask;
+		//submit_info.pCommandBuffers = &cmd_buf;
+		//submit_info.commandBufferCount = 1;
+		//submit_info.signalSemaphoreCount = 1;
+		//submit_info.pSignalSemaphores = &release_semaphore;
+		// TODO: Do everything with c99 designated initializers?
+		VkSubmitInfo submit_info =
+		{
+			.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+			.waitSemaphoreCount = 1,
+			.pWaitSemaphores = &aquire_semaphore,
+			.pWaitDstStageMask = &submit_stage_mask,
+			.pCommandBuffers = &cmd_buf,
+			.commandBufferCount = 1,
+			.signalSemaphoreCount = 1,
+			.pSignalSemaphores = &release_semaphore,
+		};
 		VK_CHECK(vkQueueSubmit(queue, 1, &submit_info, VK_NULL_HANDLE));
 
 		VkPresentInfoKHR present_info = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
@@ -128,7 +141,7 @@ int main()
 	}
 
 	// SHORTCUT: Destroy surface, instance, etc.
-	vkDestroyCommandPool(device, cmd_buf_pool, nullptr);
+	vkDestroyCommandPool(device, cmd_buf_pool, NULL);
 
 
 	glfwDestroyWindow(window);
@@ -136,7 +149,7 @@ int main()
 	return 0;
 }
 
-VkInstance CreateInstance()
+VkInstance CreateInstance(void)
 {
 	// SHORTCUT: Check if version is available via vkEnumerateInstanceVersion()
 	VkApplicationInfo app_info = { VK_STRUCTURE_TYPE_APPLICATION_INFO };
@@ -172,13 +185,13 @@ VkInstance CreateInstance()
 	instance_create_info.enabledExtensionCount = ARRAY_SIZE(extensions);
 
 	VkInstance instance = VK_NULL_HANDLE;
-	VK_CHECK(vkCreateInstance(&instance_create_info, nullptr, &instance));
+	VK_CHECK(vkCreateInstance(&instance_create_info, NULL, &instance));
 
 	return instance;
 }
 
 
-VkPhysicalDevice PickPhysicalDevice(VkInstance instance)
+VkPhysicalDevice CreatePhysicalDevice(VkInstance instance)
 {
 	assert(instance);
 
@@ -252,7 +265,7 @@ VkDevice CreateDevice(VkInstance instance, VkPhysicalDevice physical_device, uin
 	device_create_info.enabledExtensionCount = ARRAY_SIZE(extensions);
 
 	VkDevice device = VK_NULL_HANDLE;
-	VK_CHECK(vkCreateDevice(physical_device, &device_create_info, nullptr, &device));
+	VK_CHECK(vkCreateDevice(physical_device, &device_create_info, NULL, &device));
 
 	return device;
 }
@@ -264,10 +277,10 @@ VkSurfaceKHR CreateSurface(VkInstance instance, GLFWwindow* window)
 
 #ifdef VK_USE_PLATFORM_WIN32_KHR
 	VkWin32SurfaceCreateInfoKHR surface_create_info = { VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR };
-	surface_create_info.hinstance = GetModuleHandle(nullptr);
+	surface_create_info.hinstance = GetModuleHandle(NULL);
 	surface_create_info.hwnd = glfwGetWin32Window(window);
 	VkSurfaceKHR surface = 0;
-	VK_CHECK(vkCreateWin32SurfaceKHR(instance, &surface_create_info, nullptr, &surface));
+	VK_CHECK(vkCreateWin32SurfaceKHR(instance, &surface_create_info, NULL, &surface));
 	return surface;
 #else
 #error Unsupported Platform
@@ -300,18 +313,18 @@ VkSwapchainKHR CreateSwapchain(VkPhysicalDevice physical_device/*TODO*/, VkDevic
 	assert(is_surface_supported);
 
 	VkSwapchainKHR swapchain = VK_NULL_HANDLE;
-	VK_CHECK(vkCreateSwapchainKHR(device, &swapchain_create_info, nullptr, &swapchain));
+	VK_CHECK(vkCreateSwapchainKHR(device, &swapchain_create_info, NULL, &swapchain));
 
 	return swapchain;
 }
 
-VkSemaphore CreateSemaphore(VkDevice device)
+VkSemaphore CreateVkSemaphore(VkDevice device)
 {
 	assert(device);
 	VkSemaphoreCreateInfo semaphore_create_info = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
 
 	VkSemaphore semaphore = VK_NULL_HANDLE;
-	vkCreateSemaphore(device, &semaphore_create_info, nullptr, &semaphore);
+	vkCreateSemaphore(device, &semaphore_create_info, NULL, &semaphore);
 
 	return semaphore;
 }
@@ -324,7 +337,7 @@ VkCommandPool CreateCommandBufferPool(VkDevice device, uint32_t family_index)
 	cmd_pool_create_info.queueFamilyIndex = family_index;
 
 	VkCommandPool cmd_pool = VK_NULL_HANDLE;
-	vkCreateCommandPool(device, &cmd_pool_create_info, nullptr, &cmd_pool);
+	vkCreateCommandPool(device, &cmd_pool_create_info, NULL, &cmd_pool);
 
 	return cmd_pool;
 }
