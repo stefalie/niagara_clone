@@ -29,7 +29,6 @@ VkPhysicalDevice PickPhysicalDevice(VkInstance instance);
 VkDevice CreateDevice(VkInstance instance, VkPhysicalDevice physical_device, uint32_t family_index);
 VkSurfaceKHR CreateSurface(VkInstance instance, GLFWwindow* window);
 VkFormat GetSwapchainFormat(VkPhysicalDevice physical_device, VkSurfaceKHR surface);
-VkSwapchainKHR CreateSwapchain(VkDevice device, VkSurfaceKHR surface, VkSurfaceCapabilitiesKHR surface_caps, VkFormat format, uint32_t family_index, uint32_t width, uint32_t height);
 VkSemaphore CreateSemaphore(VkDevice device);
 VkRenderPass CreateRenderPass(VkDevice device, VkFormat format);
 VkFramebuffer CreateFrameBuffer(VkDevice device, VkRenderPass render_pass, VkImageView image_view, uint32_t width, uint32_t height);
@@ -42,10 +41,22 @@ VkImageMemoryBarrier ImageBarrier(VkImage image, VkAccessFlags src_access_mask, 
 
 struct Swapchain
 {
+	VkSwapchainKHR swapchain;
+
 	std::vector<VkImage> images;
 	std::vector<VkImageView> image_views;
 	std::vector<VkFramebuffer> framebuffers;
+
+	uint32_t width;
+	uint32_t height;
+	uint32_t image_count;  // TODO: Redundant
 };
+
+VkSwapchainKHR CreateSwapchain(VkDevice device, VkSurfaceKHR surface, VkSurfaceCapabilitiesKHR surface_caps, VkFormat format, uint32_t family_index, uint32_t width, uint32_t height, VkSwapchainKHR old_swapchain);
+// TODO: Make descriptor for all the inputs ...
+void CreateSwapchain(VkPhysicalDevice phsyical_device, VkDevice device, VkSurfaceKHR surface, VkFormat format, uint32_t family_index, VkRenderPass render_pass, uint32_t width, uint32_t height, VkSwapchainKHR old_swapchain, Swapchain& result);
+void ResizeSwapchainIfNecessary(VkPhysicalDevice physical_device, VkDevice device, VkSurfaceKHR surface, VkFormat format, uint32_t family_index, VkRenderPass render_pass, Swapchain& result);
+void DestroySwapchain(VkDevice device, const Swapchain& swapchain);
 
 int main()
 {
@@ -55,8 +66,10 @@ int main()
 	VkInstance instance = CreateInstance();
 	assert(instance);
 
+#ifdef _DEBUG
 	VkDebugReportCallbackEXT debug_callback = RegisterDebugCallback(instance);
 	assert(debug_callback);
+#endif
 
 	//VkDebugUtilsMessengerCreateInfoEXT messenger_create_info = { VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT };
 	//messenger_create_info.messageSeverity =
@@ -93,7 +106,15 @@ int main()
 	VkSurfaceKHR surface = CreateSurface(instance, window);
 	assert(surface);
 
-	// NOTE: It's stupid that you need to first open a windows and create a surface just to see if its suported.
+	// NOTE: It's stupid that you need to first open a windows and create a surface just to see if its supported.
+	// TODO: I guess this should happen as part of the family picking.
+	// The order is then:
+	// 1. Create instance
+	// 2. Open window
+	// 3. Create surface
+	// (the family index picking can now pick a family that supports the surface)
+	// 4. Pick physical device with the help of instance, surface
+	// 5. Call GetGraphicsFamilyIndex again
 	VkBool32 is_surface_supported = false;
 	VK_CHECK(vkGetPhysicalDeviceSurfaceSupportKHR(physical_device, family_index, surface, &is_surface_supported));
 	assert(is_surface_supported);
@@ -104,11 +125,9 @@ int main()
 	VkFormat swapchain_format = GetSwapchainFormat(physical_device, surface);
 	assert(swapchain_format);
 
-	VkSurfaceCapabilitiesKHR surface_caps = {};
-	VK_CHECK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, surface, &surface_caps));
-
-	VkSwapchainKHR swapchain = CreateSwapchain(device, surface, surface_caps, swapchain_format, family_index, fb_width, fb_height);
-	assert(swapchain);
+	//// TODO move: into swapchain creation. Or keep it here as it will be reused upon resizing.
+	//VkSurfaceCapabilitiesKHR surface_caps;
+	//VK_CHECK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, surface, &surface_caps));
 
 	VkSemaphore aquire_semaphore = CreateSemaphore(device);
 	assert(aquire_semaphore);
@@ -122,6 +141,10 @@ int main()
 	VkRenderPass render_pass = CreateRenderPass(device, swapchain_format);
 	assert(render_pass);
 
+	// NOTE: This is earlier here than what Arseny is doing.
+	Swapchain swapchain;
+	CreateSwapchain(physical_device, device, surface, swapchain_format, family_index, render_pass, fb_width, fb_height, VK_NULL_HANDLE, swapchain);
+
 	VkShaderModule triangle_vert = LoadShader(device, "triangle.vert.spv");
 	VkShaderModule triangle_frag = LoadShader(device, "triangle.frag.spv");
 
@@ -132,25 +155,6 @@ int main()
 
 	VkPipeline triangle_pipeline = CreateGraphicsPipeline(device, pipeline_cache, render_pass, triangle_layout, triangle_vert, triangle_frag);
 	assert(triangle_pipeline);
-
-	uint32_t swapchain_image_count = 0;
-	VK_CHECK(vkGetSwapchainImagesKHR(device, swapchain, &swapchain_image_count, nullptr));
-	std::vector<VkImage> swapchain_images(swapchain_image_count);
-	VK_CHECK(vkGetSwapchainImagesKHR(device, swapchain, &swapchain_image_count, swapchain_images.data()));
-
-	std::vector<VkImageView> swapchain_image_views(swapchain_image_count);
-	for (uint32_t i = 0; i < swapchain_image_count; ++i)
-	{
-		swapchain_image_views[i] = CreateImageView(device, swapchain_images[i], swapchain_format);
-		assert(swapchain_image_views[i]);
-	}
-
-	std::vector<VkFramebuffer> swapchain_framebuffers(swapchain_image_count);
-	for (uint32_t i = 0; i < swapchain_image_count; ++i)
-	{
-		swapchain_framebuffers[i] = CreateFrameBuffer(device, render_pass, swapchain_image_views[i], fb_width, fb_height);
-		assert(swapchain_framebuffers[i]);
-	}
 
 	VkCommandPool cmd_buf_pool = CreateCommandBufferPool(device, family_index);
 	assert(cmd_buf_pool);
@@ -171,8 +175,20 @@ int main()
 			glfwSetWindowShouldClose(window, GLFW_TRUE);
 		}
 
+		ResizeSwapchainIfNecessary(physical_device, device, surface, swapchain_format, family_index, render_pass, swapchain);
+		//// Let's use glfw for this for now.
+		//int curr_fb_width, curr_fb_height;
+		//glfwGetFramebufferSize(window, &curr_fb_width, &curr_fb_height);
+		//if (curr_fb_width != fb_width || curr_fb_height != fb_height)
+		//{
+		//	fb_width = curr_fb_width;
+		//	fb_height = curr_fb_height;
+		//	ResizeSwapchain(device, surface, surface_caps, swapchain_format, family_index, render_pass, fb_width, fb_height, swapchain);
+		//}
+		//// TODO: Could we just use the glfw resize callback?.
+
 		uint32_t image_index = 0;
-		VK_CHECK(vkAcquireNextImageKHR(device, swapchain, ~0ull, aquire_semaphore, VK_NULL_HANDLE, &image_index));
+		VK_CHECK(vkAcquireNextImageKHR(device, swapchain.swapchain, ~0ull, aquire_semaphore, VK_NULL_HANDLE, &image_index));
 
 		VK_CHECK(vkResetCommandPool(device, cmd_buf_pool, 0));
 
@@ -180,7 +196,7 @@ int main()
 		begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 		VK_CHECK(vkBeginCommandBuffer(cmd_buf, &begin_info));
 
-		VkImageMemoryBarrier render_begin_barrier = ImageBarrier(swapchain_images[image_index], 0, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+		VkImageMemoryBarrier render_begin_barrier = ImageBarrier(swapchain.images[image_index], 0, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 		vkCmdPipelineBarrier(cmd_buf, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 0, nullptr, 1, &render_begin_barrier);
 
 		VkClearColorValue clear_color = { 48.0f / 255.0f, 10.0f / 255.0f, 36.0f / 255.0f, 1.0f };  // Ubuntu terminal color.
@@ -188,16 +204,16 @@ int main()
 
 		VkRenderPassBeginInfo pass_begin_info = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
 		pass_begin_info.renderPass = render_pass;
-		pass_begin_info.framebuffer = swapchain_framebuffers[image_index];
-		pass_begin_info.renderArea.extent.width = fb_width;
-		pass_begin_info.renderArea.extent.height = fb_height;
+		pass_begin_info.framebuffer = swapchain.framebuffers[image_index];
+		pass_begin_info.renderArea.extent.width = swapchain.width;
+		pass_begin_info.renderArea.extent.height = swapchain.height;
 		pass_begin_info.clearValueCount = 1;
 		pass_begin_info.pClearValues = &clear_value;
 
 		vkCmdBeginRenderPass(cmd_buf, &pass_begin_info, VK_SUBPASS_CONTENTS_INLINE);
 
-		VkViewport viewport = { 0.0f, (float)fb_height, (float)fb_width, -(float)fb_height, 0.0f, 1.0f };
-		VkRect2D scissor = { { 0, 0 }, { (uint32_t)fb_width, (uint32_t)fb_height } };
+		VkViewport viewport = { 0.0f, (float)swapchain.height, (float)swapchain.width, -(float)swapchain.height, 0.0f, 1.0f };
+		VkRect2D scissor = { { 0, 0 }, { (uint32_t)swapchain.width, (uint32_t)swapchain.height } };
 
 		vkCmdSetViewport(cmd_buf, 0, 1, &viewport);
 		vkCmdSetScissor(cmd_buf, 0, 1, &scissor);
@@ -214,7 +230,7 @@ int main()
 		//range.layerCount = 1;
 		//vkCmdClearColorImage(cmd_buf, swapchain_images[image_index], VK_IMAGE_LAYOUT_GENERAL, &color, 1, &range);
 
-		VkImageMemoryBarrier render_end_barrier = ImageBarrier(swapchain_images[image_index], VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+		VkImageMemoryBarrier render_end_barrier = ImageBarrier(swapchain.images[image_index], VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 		vkCmdPipelineBarrier(cmd_buf, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 0, nullptr, 1, &render_end_barrier);
 
 		VK_CHECK(vkEndCommandBuffer(cmd_buf));
@@ -235,7 +251,7 @@ int main()
 		present_info.waitSemaphoreCount = 1;
 		present_info.pWaitSemaphores = &release_semaphore;
 		present_info.swapchainCount = 1;
-		present_info.pSwapchains = &swapchain;
+		present_info.pSwapchains = &swapchain.swapchain;
 		present_info.pImageIndices = &image_index;
 
 		VK_CHECK(vkQueuePresentKHR(queue, &present_info));
@@ -251,24 +267,14 @@ int main()
 
 	vkDestroyCommandPool(device, cmd_buf_pool, nullptr);
 
-	// TODO here
-	// TODO order
-	for (uint32_t i = 0; i < swapchain_image_count; ++i)
-	{
-		vkDestroyFramebuffer(device, swapchain_framebuffers[i], nullptr);
-	}
-	for (uint32_t i = 0; i < swapchain_image_count; ++i)
-	{
-		vkDestroyImageView(device, swapchain_image_views[i], nullptr);
-	}
-	vkDestroySwapchainKHR(device, swapchain, nullptr);
-
 	vkDestroyPipeline(device, triangle_pipeline, nullptr);
 	vkDestroyPipelineLayout(device, triangle_layout, nullptr);
 	//vkDestroyPipelineCache(device, pipeline_cache, nullptr);
 
 	vkDestroyShaderModule(device, triangle_frag, nullptr);
 	vkDestroyShaderModule(device, triangle_vert, nullptr);
+
+	DestroySwapchain(device, swapchain);
 
 	vkDestroyRenderPass(device, render_pass, nullptr);
 
@@ -281,8 +287,10 @@ int main()
 
 	vkDestroyDevice(device, nullptr);
 
+#ifdef _DEBUG
 	PFN_vkDestroyDebugReportCallbackEXT vkDestroyDebugReportCallbackEXT = (PFN_vkDestroyDebugReportCallbackEXT)vkGetInstanceProcAddr(instance, "vkDestroyDebugReportCallbackEXT");
 	vkDestroyDebugReportCallbackEXT(instance, debug_callback, nullptr);
+#endif
 	vkDestroyInstance(instance, nullptr);
 
 	return 0;
@@ -553,44 +561,6 @@ VkFormat GetSwapchainFormat(VkPhysicalDevice physical_device, VkSurfaceKHR surfa
 	return formats[0].format;
 }
 
-VkSwapchainKHR CreateSwapchain(VkDevice device, VkSurfaceKHR surface, VkSurfaceCapabilitiesKHR surface_caps, VkFormat format, uint32_t family_index, uint32_t width, uint32_t height)
-{
-	assert(device);
-	assert(surface);
-	assert(format);
-
-	const VkCompositeAlphaFlagBitsKHR surface_composite =
-		(surface_caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR) ? VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR :
-		(surface_caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR) ? VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR :
-		(surface_caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR) ? VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR :
-		VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;  // One option is always guaranteed to be supported.
-
-	VkSwapchainCreateInfoKHR swapchain_create_info = { VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR };
-	swapchain_create_info.surface = surface;
-	swapchain_create_info.minImageCount = std::max(2u, surface_caps.minImageCount);
-	swapchain_create_info.imageFormat = format;
-	swapchain_create_info.imageColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
-	swapchain_create_info.imageExtent.width = width;
-	swapchain_create_info.imageExtent.height = height;
-	swapchain_create_info.imageArrayLayers = 1;
-	swapchain_create_info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-	swapchain_create_info.queueFamilyIndexCount = 1;
-	swapchain_create_info.pQueueFamilyIndices = &family_index;
-	// TODO: There was a validation error about the preTransform.
-	// Calling vkGetPhysicalDeviceSurfaceCapabilitiesKHR made it go away. Strange.
-	// I feel it should be:
-	swapchain_create_info.preTransform = surface_caps.currentTransform;
-	//swapchain_create_info.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
-	// NOTE: Android doesn't support opaque bit, it supports 0x2 or 0x4.
-	swapchain_create_info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;// surface_composite;
-	swapchain_create_info.presentMode = VK_PRESENT_MODE_FIFO_KHR;
-
-	VkSwapchainKHR swapchain = VK_NULL_HANDLE;
-	VK_CHECK(vkCreateSwapchainKHR(device, &swapchain_create_info, nullptr, &swapchain));
-
-	return swapchain;
-}
-
 VkSemaphore CreateSemaphore(VkDevice device)
 {
 	assert(device);
@@ -851,3 +821,125 @@ VkImageMemoryBarrier ImageBarrier(VkImage image, VkAccessFlags src_access_mask, 
 
 	return barrier;
 }
+
+VkSwapchainKHR CreateSwapchain(VkDevice device, VkSurfaceKHR surface, VkSurfaceCapabilitiesKHR surface_caps, VkFormat format, uint32_t family_index, uint32_t width, uint32_t height, VkSwapchainKHR old_swapchain)
+{
+	assert(device);
+	assert(surface);
+	assert(format);
+
+	const VkCompositeAlphaFlagBitsKHR surface_composite =
+		(surface_caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR) ? VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR :
+		(surface_caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR) ? VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR :
+		(surface_caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR) ? VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR :
+		VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;  // One option is always guaranteed to be supported.
+
+	VkSwapchainCreateInfoKHR swapchain_create_info = { VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR };
+	swapchain_create_info.surface = surface;
+	swapchain_create_info.minImageCount = std::max(2u, surface_caps.minImageCount);
+	swapchain_create_info.imageFormat = format;
+	swapchain_create_info.imageColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+	swapchain_create_info.imageExtent.width = width;
+	swapchain_create_info.imageExtent.height = height;
+	swapchain_create_info.imageArrayLayers = 1;
+	swapchain_create_info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+	swapchain_create_info.queueFamilyIndexCount = 1;
+	swapchain_create_info.pQueueFamilyIndices = &family_index;
+	// TODO: There was a validation error about the preTransform.
+	// Calling vkGetPhysicalDeviceSurfaceCapabilitiesKHR made it go away. Strange.
+	// I feel it should be:
+	swapchain_create_info.preTransform = surface_caps.currentTransform;
+	//swapchain_create_info.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
+	// NOTE: Android doesn't support opaque bit, it supports 0x2 or 0x4.
+	swapchain_create_info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;// surface_composite;
+	swapchain_create_info.presentMode = VK_PRESENT_MODE_FIFO_KHR;
+	swapchain_create_info.oldSwapchain = old_swapchain;
+
+	VkSwapchainKHR swapchain = VK_NULL_HANDLE;
+	VK_CHECK(vkCreateSwapchainKHR(device, &swapchain_create_info, nullptr, &swapchain));
+
+	return swapchain;
+}
+
+void CreateSwapchain(VkPhysicalDevice physical_device, VkDevice device, VkSurfaceKHR surface, VkFormat format, uint32_t family_index, VkRenderPass render_pass, uint32_t width, uint32_t height, VkSwapchainKHR old_swapchain, Swapchain& result)
+{
+	// TODO: asserts?
+
+	VkSurfaceCapabilitiesKHR surface_caps;
+	VK_CHECK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, surface, &surface_caps));
+
+	// TODO: merge the overload in here?
+	VkSwapchainKHR swapchain = CreateSwapchain(device, surface, surface_caps, format, family_index, width, height, old_swapchain);
+	assert(swapchain);
+
+	uint32_t image_count = 0;
+	VK_CHECK(vkGetSwapchainImagesKHR(device, swapchain, &image_count, nullptr));
+
+	std::vector<VkImage> images(image_count);
+	VK_CHECK(vkGetSwapchainImagesKHR(device, swapchain, &image_count, images.data()));
+
+	std::vector<VkImageView> image_views(image_count);
+	for (uint32_t i = 0; i < image_count; ++i)
+	{
+		image_views[i] = CreateImageView(device, images[i], format);
+		assert(image_views[i]);
+	}
+
+	std::vector<VkFramebuffer> framebuffers(image_count);
+	for (uint32_t i = 0; i < image_count; ++i)
+	{
+		framebuffers[i] = CreateFrameBuffer(device, render_pass, image_views[i], width, height);
+		assert(framebuffers[i]);
+	}
+
+	// TODO: unnecessary copying.
+	result.swapchain = swapchain;
+	result.images = images;
+	result.image_views = image_views;
+	result.framebuffers = framebuffers;
+	result.width = width;
+	result.height = height;
+	result.image_count = image_count;
+
+	// TODO: error handling?
+}
+
+void ResizeSwapchainIfNecessary(VkPhysicalDevice physical_device, VkDevice device, VkSurfaceKHR surface, VkFormat format, uint32_t family_index, VkRenderPass render_pass, Swapchain& result)
+{
+	// TODO: asserts
+	assert(result.swapchain);
+
+	VkSurfaceCapabilitiesKHR surface_caps;
+	VK_CHECK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, surface, &surface_caps));
+	const uint32_t curr_width = surface_caps.currentExtent.width;
+	const uint32_t curr_height = surface_caps.currentExtent.height;
+
+	if (curr_width != result.width || curr_height != result.height)
+	{
+		// TODO: So much  copying.
+		Swapchain old = result;
+
+		// TODO: This will query the caps again.
+		CreateSwapchain(physical_device, device, surface, format, family_index, render_pass, curr_width, curr_height, old.swapchain, result);
+
+		VK_CHECK(vkDeviceWaitIdle(device));
+
+		DestroySwapchain(device, old);
+	}
+}
+
+void DestroySwapchain(VkDevice device, const Swapchain& swapchain)
+{
+	// TODO: asserts
+
+	for (uint32_t i = 0; i < swapchain.image_count; ++i)
+	{
+		vkDestroyFramebuffer(device, swapchain.framebuffers[i], nullptr);
+	}
+	for (uint32_t i = 0; i < swapchain.image_count; ++i)
+	{
+		vkDestroyImageView(device, swapchain.image_views[i], nullptr);
+	}
+	vkDestroySwapchainKHR(device, swapchain.swapchain, nullptr);
+}
+
