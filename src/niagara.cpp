@@ -25,7 +25,6 @@ VkInstance CreateInstance();
 VkDebugReportCallbackEXT RegisterDebugCallback(VkInstance instance);
 // TODO remove here from pubic api
 uint32_t GetGraphicsFamilyIndex(VkPhysicalDevice physical_device);
-// SHORTUCT: We just go for the first discrete GPU, or, if not available, simply the first GPU.
 VkPhysicalDevice PickPhysicalDevice(VkInstance instance);
 VkDevice CreateDevice(VkInstance instance, VkPhysicalDevice physical_device, uint32_t family_index);
 VkSurfaceKHR CreateSurface(VkInstance instance, GLFWwindow* window);
@@ -40,6 +39,13 @@ VkPipelineLayout CreatePipelineLayout(VkDevice device);
 VkPipeline CreateGraphicsPipeline(VkDevice device, VkPipelineCache pipeline_cache, VkRenderPass render_pass, VkPipelineLayout layout, VkShaderModule vert, VkShaderModule frag);
 VkCommandPool CreateCommandBufferPool(VkDevice device, uint32_t family_index);
 VkImageMemoryBarrier ImageBarrier(VkImage image, VkAccessFlags src_access_mask, VkAccessFlags dst_access_mask, VkImageLayout old_layout, VkImageLayout new_layout);
+
+struct Swapchain
+{
+	std::vector<VkImage> images;
+	std::vector<VkImageView> image_views;
+	std::vector<VkFramebuffer> framebuffers;
+};
 
 int main()
 {
@@ -87,7 +93,7 @@ int main()
 	VkSurfaceKHR surface = CreateSurface(instance, window);
 	assert(surface);
 
-	// TODO: It's stupid that you need to first open a windows and create a surface just to see if its suuported.
+	// NOTE: It's stupid that you need to first open a windows and create a surface just to see if its suported.
 	VkBool32 is_surface_supported = false;
 	VK_CHECK(vkGetPhysicalDeviceSurfaceSupportKHR(physical_device, family_index, surface, &is_surface_supported));
 	assert(is_surface_supported);
@@ -175,7 +181,7 @@ int main()
 		VK_CHECK(vkBeginCommandBuffer(cmd_buf, &begin_info));
 
 		VkImageMemoryBarrier render_begin_barrier = ImageBarrier(swapchain_images[image_index], 0, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-		vkCmdPipelineBarrier(cmd_buf, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 0, nullptr, 1, &render_begin_barrier);
+		vkCmdPipelineBarrier(cmd_buf, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 0, nullptr, 1, &render_begin_barrier);
 
 		VkClearColorValue clear_color = { 48.0f / 255.0f, 10.0f / 255.0f, 36.0f / 255.0f, 1.0f };  // Ubuntu terminal color.
 		VkClearValue clear_value = { clear_color };
