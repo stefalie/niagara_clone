@@ -16,6 +16,9 @@
     <Filter Include="glfw">
       <UniqueIdentifier>{64bf978c-5f44-45de-a563-c93137229993}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Shaders">
+      <UniqueIdentifier>{5f1420fa-a3fe-4838-9f38-2b431e8e7663}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\extern\glfw\src\context.c">
@@ -89,5 +92,13 @@
     <ClInclude Include="..\extern\glfw\src\osmesa_context.h">
       <Filter>glfw</Filter>
     </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="shaders\triangle.frag.glsl">
+      <Filter>Shaders</Filter>
+    </None>
+    <None Include="shaders\triangle.vert.glsl">
+      <Filter>Shaders</Filter>
+    </None>
   </ItemGroup>
 </Project>
