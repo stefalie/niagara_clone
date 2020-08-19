@@ -100,6 +100,7 @@ int main()
 
 	const int window_width = 1024;
 	const int window_height = 768;
+	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 	GLFWwindow* window = glfwCreateWindow(window_width, window_height, "Hello Vulkan", nullptr, nullptr);
 	assert(window);
 
@@ -303,7 +304,7 @@ VkInstance CreateInstance()
 	app_info.apiVersion = VK_API_VERSION_1_2;
 	app_info.pApplicationName = "Niagara Clone Test";
 
-	VkInstanceCreateInfo instance_create_info = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+	VkInstanceCreateInfo instance_create_info = { VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
 	instance_create_info.pApplicationInfo = &app_info;
 
 	// SHORTCUT: Check availability of theses?
