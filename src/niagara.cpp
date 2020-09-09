@@ -3,7 +3,7 @@
 
 #include <GLFW/glfw3.h>
 #include <GLFW/glfw3native.h>
-#include <vulkan/vulkan.h>
+#include <volk.h>
 
 // TODO: Ugh
 #include <algorithm>
@@ -54,7 +54,7 @@ struct Swapchain
 
 VkSwapchainKHR CreateSwapchain(VkDevice device, VkSurfaceKHR surface, VkSurfaceCapabilitiesKHR surface_caps, VkFormat format, uint32_t family_index, uint32_t width, uint32_t height, VkSwapchainKHR old_swapchain);
 // TODO: Make descriptor for all the inputs ...
-void CreateSwapchain(VkPhysicalDevice phsyical_device, VkDevice device, VkSurfaceKHR surface, VkFormat format, uint32_t family_index, VkRenderPass render_pass, uint32_t width, uint32_t height, VkSwapchainKHR old_swapchain, Swapchain& result);
+void CreateSwapchain(VkPhysicalDevice phsyical_device, VkDevice device, VkSurfaceKHR surface, VkFormat format, uint32_t family_index, VkRenderPass render_pass, VkSwapchainKHR old_swapchain, Swapchain& result);
 void ResizeSwapchainIfNecessary(VkPhysicalDevice physical_device, VkDevice device, VkSurfaceKHR surface, VkFormat format, uint32_t family_index, VkRenderPass render_pass, Swapchain& result);
 void DestroySwapchain(VkDevice device, const Swapchain& swapchain);
 
@@ -63,8 +63,12 @@ int main()
 	const int rc = glfwInit();
 	assert(rc == 1);
 
+	VK_CHECK(volkInitialize());
+
 	VkInstance instance = CreateInstance();
 	assert(instance);
+
+	volkLoadInstance(instance);
 
 #ifdef _DEBUG
 	VkDebugReportCallbackEXT debug_callback = RegisterDebugCallback(instance);
@@ -100,7 +104,7 @@ int main()
 
 	const int window_width = 1024;
 	const int window_height = 768;
-	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);  // For NVidia
 	GLFWwindow* window = glfwCreateWindow(window_width, window_height, "Hello Vulkan", nullptr, nullptr);
 	assert(window);
 
@@ -119,9 +123,6 @@ int main()
 	VkBool32 is_surface_supported = false;
 	VK_CHECK(vkGetPhysicalDeviceSurfaceSupportKHR(physical_device, family_index, surface, &is_surface_supported));
 	assert(is_surface_supported);
-
-	int fb_width, fb_height;
-	glfwGetFramebufferSize(window, &fb_width, &fb_height);
 
 	VkFormat swapchain_format = GetSwapchainFormat(physical_device, surface);
 	assert(swapchain_format);
@@ -144,7 +145,7 @@ int main()
 
 	// NOTE: This is earlier here than what Arseny is doing.
 	Swapchain swapchain;
-	CreateSwapchain(physical_device, device, surface, swapchain_format, family_index, render_pass, fb_width, fb_height, VK_NULL_HANDLE, swapchain);
+	CreateSwapchain(physical_device, device, surface, swapchain_format, family_index, render_pass, VK_NULL_HANDLE, swapchain);
 
 	VkShaderModule triangle_vert = LoadShader(device, "triangle.vert.spv");
 	VkShaderModule triangle_frag = LoadShader(device, "triangle.frag.spv");
@@ -262,9 +263,6 @@ int main()
 
 		// TODO go away
 		VK_CHECK(vkDeviceWaitIdle(device));
-
-		// TODO remove later on
-		//glfwWaitEvents();
 	}
 
 	VK_CHECK(vkDeviceWaitIdle(device));
@@ -292,7 +290,6 @@ int main()
 	vkDestroyDevice(device, nullptr);
 
 #ifdef _DEBUG
-	PFN_vkDestroyDebugReportCallbackEXT vkDestroyDebugReportCallbackEXT = (PFN_vkDestroyDebugReportCallbackEXT)vkGetInstanceProcAddr(instance, "vkDestroyDebugReportCallbackEXT");
 	vkDestroyDebugReportCallbackEXT(instance, debug_callback, nullptr);
 #endif
 	vkDestroyInstance(instance, nullptr);
@@ -380,9 +377,6 @@ VkDebugReportCallbackEXT RegisterDebugCallback(VkInstance instance)
 		VK_DEBUG_REPORT_DEBUG_BIT_EXT;
 	dbg_cb_create_info.pfnCallback = &DebugReportCallback;
 	//dbg_cb_create_info.pUserData;
-
-	PFN_vkCreateDebugReportCallbackEXT vkCreateDebugReportCallbackEXT = (PFN_vkCreateDebugReportCallbackEXT)vkGetInstanceProcAddr(instance, "vkCreateDebugReportCallbackEXT");
-	assert(vkCreateDebugReportCallbackEXT);
 
 	VkDebugReportCallbackEXT debug_callback = VK_NULL_HANDLE;
 	VK_CHECK(vkCreateDebugReportCallbackEXT(instance, &dbg_cb_create_info, nullptr, &debug_callback));
@@ -865,12 +859,14 @@ VkSwapchainKHR CreateSwapchain(VkDevice device, VkSurfaceKHR surface, VkSurfaceC
 	return swapchain;
 }
 
-void CreateSwapchain(VkPhysicalDevice physical_device, VkDevice device, VkSurfaceKHR surface, VkFormat format, uint32_t family_index, VkRenderPass render_pass, uint32_t width, uint32_t height, VkSwapchainKHR old_swapchain, Swapchain& result)
+void CreateSwapchain(VkPhysicalDevice physical_device, VkDevice device, VkSurfaceKHR surface, VkFormat format, uint32_t family_index, VkRenderPass render_pass, VkSwapchainKHR old_swapchain, Swapchain& result)
 {
 	// TODO: asserts?
 
 	VkSurfaceCapabilitiesKHR surface_caps;
 	VK_CHECK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, surface, &surface_caps));
+	const uint32_t width = surface_caps.currentExtent.width;
+	const uint32_t height = surface_caps.currentExtent.height;
 
 	// TODO: merge the overload in here?
 	VkSwapchainKHR swapchain = CreateSwapchain(device, surface, surface_caps, format, family_index, width, height, old_swapchain);
@@ -913,6 +909,17 @@ void ResizeSwapchainIfNecessary(VkPhysicalDevice physical_device, VkDevice devic
 	// TODO: asserts
 	assert(result.swapchain);
 
+	// TODO: Handle minimization (crashes on NVidia)
+	// vulkan-tutorial does:
+	// int width = 0, height = 0;
+	// glfwGetFramebufferSize(window, &width, &height);
+	// while (width == 0 || height == 0) {
+	// 	glfwGetFramebufferSize(window, &width, &height);
+	// 	glfwWaitEvents();
+	// }
+	// TODO: https://vulkan-tutorial.com/Drawing_a_triangle/Swap_chain_recreation#page_Handling-resizes-explicitly
+	// vulkan-tutorial relies on the output of vkQueuePresentKHR
+
 	VkSurfaceCapabilitiesKHR surface_caps;
 	VK_CHECK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, surface, &surface_caps));
 	const uint32_t curr_width = surface_caps.currentExtent.width;
@@ -924,7 +931,7 @@ void ResizeSwapchainIfNecessary(VkPhysicalDevice physical_device, VkDevice devic
 		Swapchain old = result;
 
 		// TODO: This will query the caps again.
-		CreateSwapchain(physical_device, device, surface, format, family_index, render_pass, curr_width, curr_height, old.swapchain, result);
+		CreateSwapchain(physical_device, device, surface, format, family_index, render_pass, old.swapchain, result);
 
 		VK_CHECK(vkDeviceWaitIdle(device));
 

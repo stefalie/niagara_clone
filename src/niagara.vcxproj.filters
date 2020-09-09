@@ -19,6 +19,12 @@
     <Filter Include="Shaders">
       <UniqueIdentifier>{5f1420fa-a3fe-4838-9f38-2b431e8e7663}</UniqueIdentifier>
     </Filter>
+    <Filter Include="volk">
+      <UniqueIdentifier>{c7f0ca36-53fa-4e07-98e0-ef69ad050160}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="meshoptimizer">
+      <UniqueIdentifier>{670142d8-da71-49b3-899c-80d215118dd0}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\extern\glfw\src\context.c">
@@ -69,6 +75,9 @@
     <ClCompile Include="niagara.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\extern\volk\volk.c">
+      <Filter>volk</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\extern\glfw\src\win32_joystick.h">
@@ -91,6 +100,9 @@
     </ClInclude>
     <ClInclude Include="..\extern\glfw\src\osmesa_context.h">
       <Filter>glfw</Filter>
+    </ClInclude>
+    <ClInclude Include="..\extern\volk\volk.h">
+      <Filter>volk</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
