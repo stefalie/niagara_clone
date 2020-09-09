@@ -1,6 +1,7 @@
 #include <assert.h>
 #include <stdio.h>
 
+#include <fast_obj.h>
 #include <GLFW/glfw3.h>
 #include <GLFW/glfw3native.h>
 #include <volk.h>
