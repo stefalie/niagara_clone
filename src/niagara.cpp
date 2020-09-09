@@ -197,6 +197,8 @@ int main()
 		begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 		VK_CHECK(vkBeginCommandBuffer(cmd_buf, &begin_info));
 
+		// NOTE: Likely a VKSubpassDependency could be used here instead of the barrier. This is explained in:
+		// https://themaister.net/blog/2019/08/14/yet-another-blog-explaining-vulkan-synchronization/
 		VkImageMemoryBarrier render_begin_barrier = ImageBarrier(swapchain.images[image_index], 0, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 		vkCmdPipelineBarrier(cmd_buf, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 0, nullptr, 1, &render_begin_barrier);
 
@@ -232,7 +234,8 @@ int main()
 		//vkCmdClearColorImage(cmd_buf, swapchain_images[image_index], VK_IMAGE_LAYOUT_GENERAL, &color, 1, &range);
 
 		VkImageMemoryBarrier render_end_barrier = ImageBarrier(swapchain.images[image_index], VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
-		vkCmdPipelineBarrier(cmd_buf, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 0, nullptr, 1, &render_end_barrier);
+		// TODO: used to be VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT
+		vkCmdPipelineBarrier(cmd_buf, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 0, nullptr, 1, &render_end_barrier);
 
 		VK_CHECK(vkEndCommandBuffer(cmd_buf));
 
