@@ -1,14 +1,14 @@
 #include <assert.h>
 #include <stdio.h>
 
+#include <algorithm>
+#include <vector>
+
 #include <fast_obj.h>
 #include <GLFW/glfw3.h>
 #include <GLFW/glfw3native.h>
+#include <meshoptimizer.h>
 #include <volk.h>
-
-// TODO: Ugh
-#include <algorithm>
-#include <vector>
 
 // SHORTCUT: Would need to be checked properly in production.
 #define VK_CHECK(call) \
@@ -39,6 +39,78 @@ VkPipelineLayout CreatePipelineLayout(VkDevice device);
 VkPipeline CreateGraphicsPipeline(VkDevice device, VkPipelineCache pipeline_cache, VkRenderPass render_pass, VkPipelineLayout layout, VkShaderModule vert, VkShaderModule frag);
 VkCommandPool CreateCommandBufferPool(VkDevice device, uint32_t family_index);
 VkImageMemoryBarrier ImageBarrier(VkImage image, VkAccessFlags src_access_mask, VkAccessFlags dst_access_mask, VkImageLayout old_layout, VkImageLayout new_layout);
+
+struct Vertex {
+	float vx, vy, vz;
+	float nx, ny, nz;
+	float tu, tv;
+};
+struct Mesh {
+	std::vector<Vertex> vertices;
+	std::vector<uint32_t> indices;
+};
+
+bool LoadMesh(Mesh& result, const char* path) {
+	 fastObjMesh* obj = fast_obj_read(path);
+	 if (!obj) {
+		 return false;
+	 }
+
+	 size_t index_count = 0;
+	 for (size_t i = 0; i < obj->face_count; ++i) {
+		 index_count += 3 * (obj->face_vertices[i] - 2);
+	 }
+
+	 std::vector<Vertex> vertices(index_count);
+
+	 size_t vertex_offset = 0;
+	 size_t index_offset = 0;
+
+	 for (size_t i = 0; i < obj->face_count; ++i) {
+		 assert(obj->face_vertices[i] == 3);
+
+		 for (size_t j = 0; j < obj->face_vertices[i]; ++j) {
+			 fastObjIndex idx = obj->indices[index_offset + j];
+
+			 // Triangulize on the fly, works only for Convex faces.
+			 if (j >= 3) {
+				 vertices[vertex_offset + 0] = vertices[vertex_offset - 3];
+				 vertices[vertex_offset + 1] = vertices[vertex_offset - 1];
+				 vertex_offset += 2;
+			 }
+
+			 Vertex& v = vertices[vertex_offset++];
+
+			 v.vx = obj->positions[idx.p * 3 + 0];
+			 v.vy = obj->positions[idx.p * 3 + 1];
+			 v.vz = obj->positions[idx.p * 3 + 2];
+			 v.nx = obj->normals[idx.n * 3 + 0];
+			 v.ny = obj->normals[idx.n * 3 + 1];
+			 v.nz = obj->normals[idx.n * 3 + 2];
+			 v.tu = obj->texcoords[idx.t * 3 + 0];
+			 v.tv = obj->texcoords[idx.t * 3 + 1];
+		 }
+
+		 index_offset += obj->face_vertices[i];
+	 }
+	 assert(vertex_offset == index_count);
+
+	 fast_obj_destroy(obj);
+
+	 // Make index buffer.
+	 std::vector<uint32_t> remap(index_count);
+	 size_t unique_vertices_count = meshopt_generateVertexRemap(remap.data(), nullptr, index_count, vertices.data(), index_count, sizeof(Vertex));
+
+	 result.vertices.resize(unique_vertices_count);
+	 result.indices.resize(index_count);
+
+	 meshopt_remapVertexBuffer(result.vertices.data(), vertices.data(), index_count, sizeof(Vertex), remap.data());
+	 meshopt_remapIndexBuffer(result.indices.data(), nullptr, index_count, remap.data());
+
+	 // TODO: Optimize mesh for more efficient GPU rendering.
+
+	 return true;
+}
 
 struct Swapchain
 {
