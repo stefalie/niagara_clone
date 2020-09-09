@@ -13,7 +13,7 @@
 #define VK_CHECK(call) \
 	do \
 	{ \
-		VkResult rc = call; \
+		const VkResult rc = call; \
 		assert(rc == VK_SUCCESS); \
 	} while(0)
 

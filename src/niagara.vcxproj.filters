@@ -94,11 +94,11 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <None Include="shaders\triangle.frag.glsl">
+    <CustomBuild Include="shaders\triangle.frag.glsl">
       <Filter>Shaders</Filter>
-    </None>
-    <None Include="shaders\triangle.vert.glsl">
+    </CustomBuild>
+    <CustomBuild Include="shaders\triangle.vert.glsl">
       <Filter>Shaders</Filter>
-    </None>
+    </CustomBuild>
   </ItemGroup>
 </Project>
