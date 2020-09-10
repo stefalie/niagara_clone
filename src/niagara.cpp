@@ -5,18 +5,18 @@
 #include <vector>
 
 #include <fast_obj.h>
-#include <GLFW/glfw3.h>
-#include <GLFW/glfw3native.h>
 #include <meshoptimizer.h>
 #include <volk.h>
+#include <GLFW/glfw3.h>
+#include <GLFW/glfw3native.h>
 
 // SHORTCUT: Would need to be checked properly in production.
-#define VK_CHECK(call) \
-	do \
-	{ \
+#define VK_CHECK(call)            \
+	do                            \
+	{                             \
 		const VkResult rc = call; \
 		assert(rc == VK_SUCCESS); \
-	} while(0)
+	} while (0)
 
 #ifndef ARRAYSIZE
 #define ARRAYSIZE(array) (sizeof(array) / sizeof((array)[0]))
@@ -24,6 +24,7 @@
 
 VkInstance CreateInstance();
 VkDebugReportCallbackEXT RegisterDebugCallback(VkInstance instance);
+VkDebugUtilsMessengerEXT RegisterDebugUtilsMessenger(VkInstance instance);
 // TODO remove here from pubic api
 uint32_t GetGraphicsFamilyIndex(VkPhysicalDevice physical_device);
 VkPhysicalDevice PickPhysicalDevice(VkInstance instance);
@@ -32,84 +33,96 @@ VkSurfaceKHR CreateSurface(VkInstance instance, GLFWwindow* window);
 VkFormat GetSwapchainFormat(VkPhysicalDevice physical_device, VkSurfaceKHR surface);
 VkSemaphore CreateSemaphore(VkDevice device);
 VkRenderPass CreateRenderPass(VkDevice device, VkFormat format);
-VkFramebuffer CreateFrameBuffer(VkDevice device, VkRenderPass render_pass, VkImageView image_view, uint32_t width, uint32_t height);
+VkFramebuffer
+CreateFrameBuffer(VkDevice device, VkRenderPass render_pass, VkImageView image_view, uint32_t width, uint32_t height);
 VkImageView CreateImageView(VkDevice device, VkImage image, VkFormat format);
 VkShaderModule LoadShader(VkDevice device, const char* path);
 VkPipelineLayout CreatePipelineLayout(VkDevice device);
-VkPipeline CreateGraphicsPipeline(VkDevice device, VkPipelineCache pipeline_cache, VkRenderPass render_pass, VkPipelineLayout layout, VkShaderModule vert, VkShaderModule frag);
+VkPipeline CreateGraphicsPipeline(VkDevice device, VkPipelineCache pipeline_cache, VkRenderPass render_pass,
+		VkPipelineLayout layout, VkShaderModule vert, VkShaderModule frag);
 VkCommandPool CreateCommandBufferPool(VkDevice device, uint32_t family_index);
-VkImageMemoryBarrier ImageBarrier(VkImage image, VkAccessFlags src_access_mask, VkAccessFlags dst_access_mask, VkImageLayout old_layout, VkImageLayout new_layout);
+VkImageMemoryBarrier ImageBarrier(VkImage image, VkAccessFlags src_access_mask, VkAccessFlags dst_access_mask,
+		VkImageLayout old_layout, VkImageLayout new_layout);
 
-struct Vertex {
+struct Vertex
+{
 	float vx, vy, vz;
 	float nx, ny, nz;
 	float tu, tv;
 };
-struct Mesh {
+struct Mesh
+{
 	std::vector<Vertex> vertices;
 	std::vector<uint32_t> indices;
 };
 
-bool LoadMesh(Mesh& result, const char* path) {
-	 fastObjMesh* obj = fast_obj_read(path);
-	 if (!obj) {
-		 return false;
-	 }
+bool LoadMesh(Mesh& result, const char* path)
+{
+	fastObjMesh* obj = fast_obj_read(path);
+	if (!obj)
+	{
+		return false;
+	}
 
-	 size_t index_count = 0;
-	 for (size_t i = 0; i < obj->face_count; ++i) {
-		 index_count += 3 * (obj->face_vertices[i] - 2);
-	 }
+	size_t index_count = 0;
+	for (size_t i = 0; i < obj->face_count; ++i)
+	{
+		index_count += 3 * (obj->face_vertices[i] - 2);
+	}
 
-	 std::vector<Vertex> vertices(index_count);
+	std::vector<Vertex> vertices(index_count);
 
-	 size_t vertex_offset = 0;
-	 size_t index_offset = 0;
+	size_t vertex_offset = 0;
+	size_t index_offset = 0;
 
-	 for (size_t i = 0; i < obj->face_count; ++i) {
-		 assert(obj->face_vertices[i] == 3);
+	for (size_t i = 0; i < obj->face_count; ++i)
+	{
+		assert(obj->face_vertices[i] == 3);
 
-		 for (size_t j = 0; j < obj->face_vertices[i]; ++j) {
-			 fastObjIndex idx = obj->indices[index_offset + j];
+		for (size_t j = 0; j < obj->face_vertices[i]; ++j)
+		{
+			fastObjIndex idx = obj->indices[index_offset + j];
 
-			 // Triangulize on the fly, works only for Convex faces.
-			 if (j >= 3) {
-				 vertices[vertex_offset + 0] = vertices[vertex_offset - 3];
-				 vertices[vertex_offset + 1] = vertices[vertex_offset - 1];
-				 vertex_offset += 2;
-			 }
+			// Triangulize on the fly, works only for Convex faces.
+			if (j >= 3)
+			{
+				vertices[vertex_offset + 0] = vertices[vertex_offset - 3];
+				vertices[vertex_offset + 1] = vertices[vertex_offset - 1];
+				vertex_offset += 2;
+			}
 
-			 Vertex& v = vertices[vertex_offset++];
+			Vertex& v = vertices[vertex_offset++];
 
-			 v.vx = obj->positions[idx.p * 3 + 0];
-			 v.vy = obj->positions[idx.p * 3 + 1];
-			 v.vz = obj->positions[idx.p * 3 + 2];
-			 v.nx = obj->normals[idx.n * 3 + 0];
-			 v.ny = obj->normals[idx.n * 3 + 1];
-			 v.nz = obj->normals[idx.n * 3 + 2];
-			 v.tu = obj->texcoords[idx.t * 3 + 0];
-			 v.tv = obj->texcoords[idx.t * 3 + 1];
-		 }
+			v.vx = obj->positions[idx.p * 3 + 0];
+			v.vy = obj->positions[idx.p * 3 + 1];
+			v.vz = obj->positions[idx.p * 3 + 2];
+			v.nx = obj->normals[idx.n * 3 + 0];
+			v.ny = obj->normals[idx.n * 3 + 1];
+			v.nz = obj->normals[idx.n * 3 + 2];
+			v.tu = obj->texcoords[idx.t * 3 + 0];
+			v.tv = obj->texcoords[idx.t * 3 + 1];
+		}
 
-		 index_offset += obj->face_vertices[i];
-	 }
-	 assert(vertex_offset == index_count);
+		index_offset += obj->face_vertices[i];
+	}
+	assert(vertex_offset == index_count);
 
-	 fast_obj_destroy(obj);
+	fast_obj_destroy(obj);
 
-	 // Make index buffer.
-	 std::vector<uint32_t> remap(index_count);
-	 size_t unique_vertices_count = meshopt_generateVertexRemap(remap.data(), nullptr, index_count, vertices.data(), index_count, sizeof(Vertex));
+	// Make index buffer.
+	std::vector<uint32_t> remap(index_count);
+	size_t unique_vertices_count = meshopt_generateVertexRemap(
+			remap.data(), nullptr, index_count, vertices.data(), index_count, sizeof(Vertex));
 
-	 result.vertices.resize(unique_vertices_count);
-	 result.indices.resize(index_count);
+	result.vertices.resize(unique_vertices_count);
+	result.indices.resize(index_count);
 
-	 meshopt_remapVertexBuffer(result.vertices.data(), vertices.data(), index_count, sizeof(Vertex), remap.data());
-	 meshopt_remapIndexBuffer(result.indices.data(), nullptr, index_count, remap.data());
+	meshopt_remapVertexBuffer(result.vertices.data(), vertices.data(), index_count, sizeof(Vertex), remap.data());
+	meshopt_remapIndexBuffer(result.indices.data(), nullptr, index_count, remap.data());
 
-	 // TODO: Optimize mesh for more efficient GPU rendering.
+	// TODO: Optimize mesh for more efficient GPU rendering.
 
-	 return true;
+	return true;
 }
 
 struct Swapchain
@@ -125,10 +138,13 @@ struct Swapchain
 	uint32_t image_count;  // TODO: Redundant
 };
 
-VkSwapchainKHR CreateSwapchain(VkDevice device, VkSurfaceKHR surface, VkSurfaceCapabilitiesKHR surface_caps, VkFormat format, uint32_t family_index, uint32_t width, uint32_t height, VkSwapchainKHR old_swapchain);
+VkSwapchainKHR CreateSwapchain(VkDevice device, VkSurfaceKHR surface, VkSurfaceCapabilitiesKHR surface_caps,
+		VkFormat format, uint32_t family_index, uint32_t width, uint32_t height, VkSwapchainKHR old_swapchain);
 // TODO: Make descriptor for all the inputs ...
-void CreateSwapchain(VkPhysicalDevice phsyical_device, VkDevice device, VkSurfaceKHR surface, VkFormat format, uint32_t family_index, VkRenderPass render_pass, VkSwapchainKHR old_swapchain, Swapchain& result);
-void ResizeSwapchainIfNecessary(VkPhysicalDevice physical_device, VkDevice device, VkSurfaceKHR surface, VkFormat format, uint32_t family_index, VkRenderPass render_pass, Swapchain& result);
+void CreateSwapchain(VkPhysicalDevice phsyical_device, VkDevice device, VkSurfaceKHR surface, VkFormat format,
+		uint32_t family_index, VkRenderPass render_pass, VkSwapchainKHR old_swapchain, Swapchain& result);
+void ResizeSwapchainIfNecessary(VkPhysicalDevice physical_device, VkDevice device, VkSurfaceKHR surface,
+		VkFormat format, uint32_t family_index, VkRenderPass render_pass, Swapchain& result);
 void DestroySwapchain(VkDevice device, const Swapchain& swapchain);
 
 int main()
@@ -146,25 +162,9 @@ int main()
 #ifdef _DEBUG
 	VkDebugReportCallbackEXT debug_callback = RegisterDebugCallback(instance);
 	assert(debug_callback);
+	VkDebugUtilsMessengerEXT debug_messenger = RegisterDebugUtilsMessenger(instance);
+	assert(debug_messenger);
 #endif
-
-	//VkDebugUtilsMessengerCreateInfoEXT messenger_create_info = { VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT };
-	//messenger_create_info.messageSeverity =
-	//	/* VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT | */
-	//	VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
-	//	VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
-	//	VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
-	//messenger_create_info.messageType =
-	//	VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
-	//	VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
-	//	VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
-	////messenger_create_info.pfnUserCallback = &DebugCallbackLunarG;
-	//messenger_create_info.pUserData = nullptr;  // optional
-
-	//VkDebugUtilsMessengerEXT callback_messenger = VK_NULL_HANDLE;
-	//TODO: use vkGetInstanceProcAddr to get function pointer
-	//vkCreateDebugUtilsMessengerEXT(instance, &messenger_create_info, nullptr, &callback_messenger);
-	//assert(callback_messenger);
 
 	VkPhysicalDevice physical_device = PickPhysicalDevice(instance);
 	assert(physical_device);
@@ -201,8 +201,8 @@ int main()
 	assert(swapchain_format);
 
 	//// TODO move: into swapchain creation. Or keep it here as it will be reused upon resizing.
-	//VkSurfaceCapabilitiesKHR surface_caps;
-	//VK_CHECK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, surface, &surface_caps));
+	// VkSurfaceCapabilitiesKHR surface_caps;
+	// VK_CHECK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, surface, &surface_caps));
 
 	VkSemaphore aquire_semaphore = CreateSemaphore(device);
 	assert(aquire_semaphore);
@@ -218,7 +218,8 @@ int main()
 
 	// NOTE: This is earlier here than what Arseny is doing.
 	Swapchain swapchain;
-	CreateSwapchain(physical_device, device, surface, swapchain_format, family_index, render_pass, VK_NULL_HANDLE, swapchain);
+	CreateSwapchain(
+			physical_device, device, surface, swapchain_format, family_index, render_pass, VK_NULL_HANDLE, swapchain);
 
 	VkShaderModule triangle_vert = LoadShader(device, "triangle.vert.spv");
 	VkShaderModule triangle_frag = LoadShader(device, "triangle.frag.spv");
@@ -228,7 +229,8 @@ int main()
 
 	VkPipelineLayout triangle_layout = CreatePipelineLayout(device);
 
-	VkPipeline triangle_pipeline = CreateGraphicsPipeline(device, pipeline_cache, render_pass, triangle_layout, triangle_vert, triangle_frag);
+	VkPipeline triangle_pipeline =
+			CreateGraphicsPipeline(device, pipeline_cache, render_pass, triangle_layout, triangle_vert, triangle_frag);
 	assert(triangle_pipeline);
 
 	VkCommandPool cmd_buf_pool = CreateCommandBufferPool(device, family_index);
@@ -250,20 +252,23 @@ int main()
 			glfwSetWindowShouldClose(window, GLFW_TRUE);
 		}
 
-		ResizeSwapchainIfNecessary(physical_device, device, surface, swapchain_format, family_index, render_pass, swapchain);
+		ResizeSwapchainIfNecessary(
+				physical_device, device, surface, swapchain_format, family_index, render_pass, swapchain);
 		//// Let's use glfw for this for now.
-		//int curr_fb_width, curr_fb_height;
-		//glfwGetFramebufferSize(window, &curr_fb_width, &curr_fb_height);
-		//if (curr_fb_width != fb_width || curr_fb_height != fb_height)
+		// int curr_fb_width, curr_fb_height;
+		// glfwGetFramebufferSize(window, &curr_fb_width, &curr_fb_height);
+		// if (curr_fb_width != fb_width || curr_fb_height != fb_height)
 		//{
 		//	fb_width = curr_fb_width;
 		//	fb_height = curr_fb_height;
-		//	ResizeSwapchain(device, surface, surface_caps, swapchain_format, family_index, render_pass, fb_width, fb_height, swapchain);
+		//	ResizeSwapchain(device, surface, surface_caps, swapchain_format, family_index, render_pass, fb_width,
+		// fb_height, swapchain);
 		//}
 		//// TODO: Could we just use the glfw resize callback?.
 
 		uint32_t image_index = 0;
-		VK_CHECK(vkAcquireNextImageKHR(device, swapchain.swapchain, ~0ull, aquire_semaphore, VK_NULL_HANDLE, &image_index));
+		VK_CHECK(vkAcquireNextImageKHR(
+				device, swapchain.swapchain, ~0ull, aquire_semaphore, VK_NULL_HANDLE, &image_index));
 
 		VK_CHECK(vkResetCommandPool(device, cmd_buf_pool, 0));
 
@@ -273,10 +278,15 @@ int main()
 
 		// NOTE: Likely a VKSubpassDependency could be used here instead of the barrier. This is explained in:
 		// https://themaister.net/blog/2019/08/14/yet-another-blog-explaining-vulkan-synchronization/
-		VkImageMemoryBarrier render_begin_barrier = ImageBarrier(swapchain.images[image_index], 0, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-		vkCmdPipelineBarrier(cmd_buf, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 0, nullptr, 1, &render_begin_barrier);
+		VkImageMemoryBarrier render_begin_barrier =
+				ImageBarrier(swapchain.images[image_index], 0, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+						VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+		vkCmdPipelineBarrier(cmd_buf, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+				VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 0, nullptr, 1,
+				&render_begin_barrier);
 
-		VkClearColorValue clear_color = { 48.0f / 255.0f, 10.0f / 255.0f, 36.0f / 255.0f, 1.0f };  // Ubuntu terminal color.
+		VkClearColorValue clear_color = { 48.0f / 255.0f, 10.0f / 255.0f, 36.0f / 255.0f,
+			1.0f };	 // Ubuntu terminal color.
 		VkClearValue clear_value = { clear_color };
 
 		VkRenderPassBeginInfo pass_begin_info = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
@@ -289,7 +299,8 @@ int main()
 
 		vkCmdBeginRenderPass(cmd_buf, &pass_begin_info, VK_SUBPASS_CONTENTS_INLINE);
 
-		VkViewport viewport = { 0.0f, (float)swapchain.height, (float)swapchain.width, -(float)swapchain.height, 0.0f, 1.0f };
+		VkViewport viewport = { 0.0f, (float)swapchain.height, (float)swapchain.width, -(float)swapchain.height, 0.0f,
+			1.0f };
 		VkRect2D scissor = { { 0, 0 }, { (uint32_t)swapchain.width, (uint32_t)swapchain.height } };
 
 		vkCmdSetViewport(cmd_buf, 0, 1, &viewport);
@@ -300,16 +311,20 @@ int main()
 
 		vkCmdEndRenderPass(cmd_buf);
 
-		//VkClearColorValue color = { 1, 0, 1, 1 };
-		//VkImageSubresourceRange range = {};
-		//range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-		//range.levelCount = 1;
-		//range.layerCount = 1;
-		//vkCmdClearColorImage(cmd_buf, swapchain_images[image_index], VK_IMAGE_LAYOUT_GENERAL, &color, 1, &range);
+		// VkClearColorValue color = { 1, 0, 1, 1 };
+		// VkImageSubresourceRange range = {};
+		// range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		// range.levelCount = 1;
+		// range.layerCount = 1;
+		// vkCmdClearColorImage(cmd_buf, swapchain_images[image_index], VK_IMAGE_LAYOUT_GENERAL, &color, 1, &range);
 
-		VkImageMemoryBarrier render_end_barrier = ImageBarrier(swapchain.images[image_index], VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+		VkImageMemoryBarrier render_end_barrier =
+				ImageBarrier(swapchain.images[image_index], VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, 0,
+						VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 		// TODO: used to be VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT
-		vkCmdPipelineBarrier(cmd_buf, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 0, nullptr, 1, &render_end_barrier);
+		vkCmdPipelineBarrier(cmd_buf, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+				VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 0, nullptr, 1,
+				&render_end_barrier);
 
 		VK_CHECK(vkEndCommandBuffer(cmd_buf));
 
@@ -344,7 +359,7 @@ int main()
 
 	vkDestroyPipeline(device, triangle_pipeline, nullptr);
 	vkDestroyPipelineLayout(device, triangle_layout, nullptr);
-	//vkDestroyPipelineCache(device, pipeline_cache, nullptr);
+	// vkDestroyPipelineCache(device, pipeline_cache, nullptr);
 
 	vkDestroyShaderModule(device, triangle_frag, nullptr);
 	vkDestroyShaderModule(device, triangle_vert, nullptr);
@@ -364,6 +379,7 @@ int main()
 
 #ifdef _DEBUG
 	vkDestroyDebugReportCallbackEXT(instance, debug_callback, nullptr);
+	vkDestroyDebugUtilsMessengerEXT(instance, debug_messenger, nullptr);
 #endif
 	vkDestroyInstance(instance, nullptr);
 
@@ -381,8 +397,7 @@ VkInstance CreateInstance()
 	instance_create_info.pApplicationInfo = &app_info;
 
 	// SHORTCUT: Check availability of theses?
-	char const* const debug_layers[] =
-	{
+	char const* const debug_layers[] = {
 		"VK_LAYER_KHRONOS_validation",
 		// TODO: What's the difference? I believe above supersedes this.
 		//"VK_LAYER_LUNARG_standard_validation",
@@ -395,14 +410,13 @@ VkInstance CreateInstance()
 	instance_create_info.enabledLayerCount = ARRAYSIZE(debug_layers);
 #endif
 
-	char const* const extensions[] =
-	{
+	char const* const extensions[] = {
 		VK_KHR_SURFACE_EXTENSION_NAME,
 #ifdef VK_USE_PLATFORM_WIN32_KHR
 		VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
 #endif
 #ifdef _DEBUG
-		VK_EXT_DEBUG_REPORT_EXTENSION_NAME,  // TODO: I think VK_EXT_DEBUG_UTILS_EXTENSION_NAME is the preferred way to do this now
+		VK_EXT_DEBUG_REPORT_EXTENSION_NAME,
 		VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
 #endif
 	};
@@ -415,13 +429,18 @@ VkInstance CreateInstance()
 	return instance;
 }
 
-VkBool32 DebugReportCallback(VkDebugReportFlagsEXT flags, VkDebugReportObjectTypeEXT objectType, uint64_t object, size_t location, int32_t messageCode, const char* pLayerPrefix, const char* pMessage, void* pUserData)
+static VkBool32 DebugReportCallback(VkDebugReportFlagsEXT flags, VkDebugReportObjectTypeEXT objectType, uint64_t object,
+		size_t location, int32_t messageCode, const char* pLayerPrefix, const char* pMessage, void* pUserData)
 {
-	const char* type =
-		(flags & VK_DEBUG_REPORT_ERROR_BIT_EXT) ? "ERROR" :
-		(flags & VK_DEBUG_REPORT_WARNING_BIT_EXT | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT) ? "WARNING" :
-		(flags & VK_DEBUG_REPORT_DEBUG_BIT_EXT) ? "DEBUG" :
-		"INFO";
+	if ((flags & VK_DEBUG_REPORT_DEBUG_BIT_EXT) || (flags & VK_DEBUG_REPORT_INFORMATION_BIT_EXT))
+	{
+		return VK_FALSE;
+	}
+
+	const char* type = (flags & VK_DEBUG_REPORT_ERROR_BIT_EXT)										  ? "ERROR" :
+			(flags & (VK_DEBUG_REPORT_WARNING_BIT_EXT | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT)) ? "WARNING" :
+			(flags & VK_DEBUG_REPORT_DEBUG_BIT_EXT)													  ? "DEBUG" :
+																										  "INFO";
 
 	char message[4096];
 	snprintf(message, ARRAYSIZE(message), "%s: %s\n\n", type, pMessage);
@@ -431,10 +450,164 @@ VkBool32 DebugReportCallback(VkDebugReportFlagsEXT flags, VkDebugReportObjectTyp
 	OutputDebugStringA(message);
 #endif
 
-	if (flags & VK_DEBUG_REPORT_ERROR_BIT_EXT) {
+	if (flags & VK_DEBUG_REPORT_ERROR_BIT_EXT)
+	{
 		assert(!"Validation error!");
 	}
 	return VK_FALSE;
+}
+
+static inline const char* GetVkObjectType(VkObjectType input_value)
+{
+	switch (input_value)
+	{
+#define CASE(type) \
+	case type:     \
+		return #type
+		CASE(VK_OBJECT_TYPE_UNKNOWN);
+		CASE(VK_OBJECT_TYPE_INSTANCE);
+		CASE(VK_OBJECT_TYPE_PHYSICAL_DEVICE);
+		CASE(VK_OBJECT_TYPE_DEVICE);
+		CASE(VK_OBJECT_TYPE_QUEUE);
+		CASE(VK_OBJECT_TYPE_SEMAPHORE);
+		CASE(VK_OBJECT_TYPE_COMMAND_BUFFER);
+		CASE(VK_OBJECT_TYPE_FENCE);
+		CASE(VK_OBJECT_TYPE_DEVICE_MEMORY);
+		CASE(VK_OBJECT_TYPE_BUFFER);
+		CASE(VK_OBJECT_TYPE_IMAGE);
+		CASE(VK_OBJECT_TYPE_EVENT);
+		CASE(VK_OBJECT_TYPE_QUERY_POOL);
+		CASE(VK_OBJECT_TYPE_BUFFER_VIEW);
+		CASE(VK_OBJECT_TYPE_IMAGE_VIEW);
+		CASE(VK_OBJECT_TYPE_SHADER_MODULE);
+		CASE(VK_OBJECT_TYPE_PIPELINE_CACHE);
+		CASE(VK_OBJECT_TYPE_PIPELINE_LAYOUT);
+		CASE(VK_OBJECT_TYPE_RENDER_PASS);
+		CASE(VK_OBJECT_TYPE_PIPELINE);
+		CASE(VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT);
+		CASE(VK_OBJECT_TYPE_SAMPLER);
+		CASE(VK_OBJECT_TYPE_DESCRIPTOR_POOL);
+		CASE(VK_OBJECT_TYPE_DESCRIPTOR_SET);
+		CASE(VK_OBJECT_TYPE_FRAMEBUFFER);
+		CASE(VK_OBJECT_TYPE_COMMAND_POOL);
+		CASE(VK_OBJECT_TYPE_SAMPLER_YCBCR_CONVERSION);
+		CASE(VK_OBJECT_TYPE_DESCRIPTOR_UPDATE_TEMPLATE);
+		CASE(VK_OBJECT_TYPE_SURFACE_KHR);
+		CASE(VK_OBJECT_TYPE_SWAPCHAIN_KHR);
+		CASE(VK_OBJECT_TYPE_DISPLAY_KHR);
+		CASE(VK_OBJECT_TYPE_DISPLAY_MODE_KHR);
+		CASE(VK_OBJECT_TYPE_DEBUG_REPORT_CALLBACK_EXT);
+		CASE(VK_OBJECT_TYPE_DEBUG_UTILS_MESSENGER_EXT);
+		CASE(VK_OBJECT_TYPE_ACCELERATION_STRUCTURE_KHR);
+		CASE(VK_OBJECT_TYPE_VALIDATION_CACHE_EXT);
+		CASE(VK_OBJECT_TYPE_PERFORMANCE_CONFIGURATION_INTEL);
+		CASE(VK_OBJECT_TYPE_DEFERRED_OPERATION_KHR);
+		CASE(VK_OBJECT_TYPE_INDIRECT_COMMANDS_LAYOUT_NV);
+		CASE(VK_OBJECT_TYPE_PRIVATE_DATA_SLOT_EXT);
+		// CASE(VK_OBJECT_TYPE_DESCRIPTOR_UPDATE_TEMPLATE_KHR);
+		// CASE(VK_OBJECT_TYPE_SAMPLER_YCBCR_CONVERSION_KHR);
+		// CASE(VK_OBJECT_TYPE_ACCELERATION_STRUCTURE_NV);
+		CASE(VK_OBJECT_TYPE_MAX_ENUM);
+#undef CASE
+	default:
+		return "Unhandled VkObjectType";
+	}
+}
+
+static VkBool32 DebugUtilsCallbackLunarG(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+		VkDebugUtilsMessageTypeFlagsEXT messageType, const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
+		void* pUserData)
+{
+	char prefix[64] = "";
+	char* message = new char[strlen(pCallbackData->pMessage) + 5000];
+	assert(message);
+	struct demo* demo = (struct demo*)pUserData;
+
+	if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT)
+	{
+		strcat(prefix, "VERBOSE : ");
+	}
+	else if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT)
+	{
+		strcat(prefix, "INFO : ");
+	}
+	else if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
+	{
+		strcat(prefix, "WARNING : ");
+	}
+	else if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
+	{
+		strcat(prefix, "ERROR : ");
+	}
+
+	if (messageType & VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT)
+	{
+		strcat(prefix, "GENERAL");
+	}
+	else
+	{
+		if (messageType & VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT)
+		{
+			strcat(prefix, "VALIDATION");
+		}
+		if (messageType & VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT)
+		{
+			if (messageType & VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT)
+			{
+				strcat(prefix, "|");
+			}
+			strcat(prefix, "PERFORMANCE");
+		}
+	}
+
+	sprintf(message, "%s - Message Id Number: %d | Message Id Name: %s\n\t%s\n", prefix, pCallbackData->messageIdNumber,
+			pCallbackData->pMessageIdName, pCallbackData->pMessage);
+	if (pCallbackData->objectCount > 0)
+	{
+		char tmp_message[500];
+		sprintf(tmp_message, "\n\tObjects - %d\n", pCallbackData->objectCount);
+		strcat(message, tmp_message);
+		for (uint32_t object = 0; object < pCallbackData->objectCount; ++object)
+		{
+			if (NULL != pCallbackData->pObjects[object].pObjectName &&
+					strlen(pCallbackData->pObjects[object].pObjectName) > 0)
+			{
+				sprintf(tmp_message, "\t\tObject[%d] - %s, Handle %p, Name \"%s\"\n", object,
+						GetVkObjectType(pCallbackData->pObjects[object].objectType),
+						(void*)(pCallbackData->pObjects[object].objectHandle),
+						pCallbackData->pObjects[object].pObjectName);
+			}
+			else
+			{
+				sprintf(tmp_message, "\t\tObject[%d] - %s, Handle %p\n", object,
+						GetVkObjectType(pCallbackData->pObjects[object].objectType),
+						(void*)(pCallbackData->pObjects[object].objectHandle));
+			}
+			strcat(message, tmp_message);
+		}
+	}
+	if (pCallbackData->cmdBufLabelCount > 0)
+	{
+		char tmp_message[500];
+		sprintf(tmp_message, "\n\tCommand Buffer Labels - %d\n", pCallbackData->cmdBufLabelCount);
+		strcat(message, tmp_message);
+		for (uint32_t cmd_buf_label = 0; cmd_buf_label < pCallbackData->cmdBufLabelCount; ++cmd_buf_label)
+		{
+			sprintf(tmp_message, "\t\tLabel[%d] - %s { %f, %f, %f, %f}\n", cmd_buf_label,
+					pCallbackData->pCmdBufLabels[cmd_buf_label].pLabelName,
+					pCallbackData->pCmdBufLabels[cmd_buf_label].color[0],
+					pCallbackData->pCmdBufLabels[cmd_buf_label].color[1],
+					pCallbackData->pCmdBufLabels[cmd_buf_label].color[2],
+					pCallbackData->pCmdBufLabels[cmd_buf_label].color[3]);
+			strcat(message, tmp_message);
+		}
+	}
+
+	printf("%s\n", message);
+	fflush(stdout);
+
+	delete[] message;
+	return false;
 }
 
 VkDebugReportCallbackEXT RegisterDebugCallback(VkInstance instance)
@@ -443,17 +616,34 @@ VkDebugReportCallbackEXT RegisterDebugCallback(VkInstance instance)
 
 	VkDebugReportCallbackCreateInfoEXT dbg_cb_create_info = { VK_STRUCTURE_TYPE_DEBUG_REPORT_CALLBACK_CREATE_INFO_EXT };
 	dbg_cb_create_info.flags =
-		//VK_DEBUG_REPORT_INFORMATION_BIT_EXT |
-		VK_DEBUG_REPORT_WARNING_BIT_EXT |
-		VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT |
-		VK_DEBUG_REPORT_ERROR_BIT_EXT |
-		VK_DEBUG_REPORT_DEBUG_BIT_EXT;
+			// VK_DEBUG_REPORT_INFORMATION_BIT_EXT |
+			VK_DEBUG_REPORT_WARNING_BIT_EXT | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT |
+			VK_DEBUG_REPORT_ERROR_BIT_EXT | VK_DEBUG_REPORT_DEBUG_BIT_EXT;
 	dbg_cb_create_info.pfnCallback = &DebugReportCallback;
-	//dbg_cb_create_info.pUserData;
+	// dbg_cb_create_info.pUserData;
 
 	VkDebugReportCallbackEXT debug_callback = VK_NULL_HANDLE;
 	VK_CHECK(vkCreateDebugReportCallbackEXT(instance, &dbg_cb_create_info, nullptr, &debug_callback));
 	return debug_callback;
+}
+
+VkDebugUtilsMessengerEXT RegisterDebugUtilsMessenger(VkInstance instance)
+{
+	VkDebugUtilsMessengerCreateInfoEXT messenger_create_info = {
+		VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT
+	};
+	messenger_create_info.messageSeverity =
+			// VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT |
+			// VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
+			VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+	messenger_create_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
+			VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+	messenger_create_info.pfnUserCallback = &DebugUtilsCallbackLunarG;
+	// messenger_create_info.pUserData = nullptr;  // optional
+
+	VkDebugUtilsMessengerEXT debug_messenger = VK_NULL_HANDLE;
+	VK_CHECK(vkCreateDebugUtilsMessengerEXT(instance, &messenger_create_info, nullptr, &debug_messenger));
+	return debug_messenger;
 }
 
 VkBool32 SupportsPresentation(VkPhysicalDevice physical_device, uint32_t family_index)
@@ -556,8 +746,7 @@ VkDevice CreateDevice(VkInstance instance, VkPhysicalDevice physical_device, uin
 	queue_create_info.queueCount = 1;
 	queue_create_info.pQueuePriorities = queue_priorities;
 
-	char const* const extensions[] =
-	{
+	char const* const extensions[] = {
 		VK_KHR_SWAPCHAIN_EXTENSION_NAME,
 	};
 
@@ -610,22 +799,19 @@ VkFormat GetSwapchainFormat(VkPhysicalDevice physical_device, VkSurfaceKHR surfa
 	for (uint32_t i = 0; i < format_count; ++i)
 	{
 		if (formats[i].format == VK_FORMAT_A2B10G10R10_UNORM_PACK32 ||
-		    formats[i].format == VK_FORMAT_A2B10G10R10_UNORM_PACK32)
+				formats[i].format == VK_FORMAT_A2B10G10R10_UNORM_PACK32)
 		{
 			return formats[i].format;
 		}
-
 	}
-	
+
 	// Prefer 32 bit UNORM format.
 	for (uint32_t i = 0; i < format_count; ++i)
 	{
-		if (formats[i].format == VK_FORMAT_R8G8B8A8_UNORM ||
-			formats[i].format == VK_FORMAT_B8G8R8A8_UNORM)
+		if (formats[i].format == VK_FORMAT_R8G8B8A8_UNORM || formats[i].format == VK_FORMAT_B8G8R8A8_UNORM)
 		{
 			return formats[i].format;
 		}
-
 	}
 
 	// TODO: deal with format_count == 0 or formats[0].format = VK_FORMAT_UNDEFINED.
@@ -659,7 +845,7 @@ VkRenderPass CreateRenderPass(VkDevice device, VkFormat format)
 	attachments[0].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
 	VkAttachmentReference attachment_ref;
-	attachment_ref.attachment = 0;  // Index into attachments for subpass.
+	attachment_ref.attachment = 0;	// Index into attachments for subpass.
 	attachment_ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
 	VkSubpassDescription subpass = {};
@@ -678,7 +864,8 @@ VkRenderPass CreateRenderPass(VkDevice device, VkFormat format)
 	return render_pass;
 }
 
-VkFramebuffer CreateFrameBuffer(VkDevice device, VkRenderPass render_pass, VkImageView image_view, uint32_t width, uint32_t height)
+VkFramebuffer
+CreateFrameBuffer(VkDevice device, VkRenderPass render_pass, VkImageView image_view, uint32_t width, uint32_t height)
 {
 	assert(device);
 	assert(render_pass);
@@ -748,17 +935,18 @@ VkShaderModule LoadShader(VkDevice device, const char* path)
 VkPipelineLayout CreatePipelineLayout(VkDevice device)
 {
 	VkPipelineLayoutCreateInfo layout_create_info = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
-	//layout_create_info.setLayoutCount;
-	//layout_create_info.pSetLayouts;
-	//layout_create_info.pushConstantRangeCount;
-	//layout_create_info.pPushConstantRanges;
+	// layout_create_info.setLayoutCount;
+	// layout_create_info.pSetLayouts;
+	// layout_create_info.pushConstantRangeCount;
+	// layout_create_info.pPushConstantRanges;
 
 	VkPipelineLayout layout = VK_NULL_HANDLE;
 	VK_CHECK(vkCreatePipelineLayout(device, &layout_create_info, nullptr, &layout));
 	return layout;
 }
 
-VkPipeline CreateGraphicsPipeline(VkDevice device, VkPipelineCache pipeline_cache, VkRenderPass render_pass, VkPipelineLayout layout, VkShaderModule vert, VkShaderModule frag)
+VkPipeline CreateGraphicsPipeline(VkDevice device, VkPipelineCache pipeline_cache, VkRenderPass render_pass,
+		VkPipelineLayout layout, VkShaderModule vert, VkShaderModule frag)
 {
 	assert(device);
 	assert(vert);
@@ -775,63 +963,69 @@ VkPipeline CreateGraphicsPipeline(VkDevice device, VkPipelineCache pipeline_cach
 	stages[1].pName = "main";
 
 	VkPipelineVertexInputStateCreateInfo vertex_input = { VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
-	//jvertex_input.vertexBindingDescriptionCount;
-	//jvertex_input.pVertexBindingDescriptions;
-	//jvertex_input.vertexAttributeDescriptionCount;
-	//jvertex_input.pVertexAttributeDescriptions;
+	// jvertex_input.vertexBindingDescriptionCount;
+	// jvertex_input.pVertexBindingDescriptions;
+	// jvertex_input.vertexAttributeDescriptionCount;
+	// jvertex_input.pVertexAttributeDescriptions;
 
-	VkPipelineInputAssemblyStateCreateInfo input_assembly = { VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO };
+	VkPipelineInputAssemblyStateCreateInfo input_assembly = {
+		VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO
+	};
 	input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 
 	VkPipelineViewportStateCreateInfo viewport = { VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO };
 	// Don't bake anything into the pipeline
 	viewport.viewportCount = 1;
-	//viewport.pViewports;
+	// viewport.pViewports;
 	viewport.scissorCount = 1;
-	//viewport.pScissors;
+	// viewport.pScissors;
 
-	VkPipelineRasterizationStateCreateInfo raster_state = { VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO };
+	VkPipelineRasterizationStateCreateInfo raster_state = {
+		VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO
+	};
 	raster_state.polygonMode = VK_POLYGON_MODE_FILL;
 	// TODO: Count on 0 being ok for all this.
-	//raster_state.cullMode;
-	//raster_state.frontFace;
-	//raster_state.depthBiasEnable;
-	//raster_state.depthBiasConstantFactor;
-	//raster_state.depthBiasClamp;
-	//raster_state.depthBiasSlopeFactor;
+	// raster_state.cullMode;
+	// raster_state.frontFace;
+	// raster_state.depthBiasEnable;
+	// raster_state.depthBiasConstantFactor;
+	// raster_state.depthBiasClamp;
+	// raster_state.depthBiasSlopeFactor;
 	raster_state.lineWidth = 1.0f;
 
 	VkPipelineMultisampleStateCreateInfo multisample = { VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO };
 	multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-	//multisample.sampleShadingEnable;
-	//multisample.minSampleShading;
-	//multisample.pSampleMask;
-	//multisample.alphaToCoverageEnable;
-	//multisample.alphaToOneEnable;
+	// multisample.sampleShadingEnable;
+	// multisample.minSampleShading;
+	// multisample.pSampleMask;
+	// multisample.alphaToCoverageEnable;
+	// multisample.alphaToOneEnable;
 
-	VkPipelineDepthStencilStateCreateInfo depth_stencil = { VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO };
-	//depth_stencil.depthTestEnable;
-	//depth_stencil.depthWriteEnable;
-	//depth_stencil.depthCompareOp;
-	//depth_stencil.depthBoundsTestEnable;
-	//depth_stencil.stencilTestEnable;
-	//depth_stencil.front;
-	//depth_stencil.back;
-	//depth_stencil.minDepthBounds;
-	//depth_stencil.maxDepthBounds;
+	VkPipelineDepthStencilStateCreateInfo depth_stencil = {
+		VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO
+	};
+	// depth_stencil.depthTestEnable;
+	// depth_stencil.depthWriteEnable;
+	// depth_stencil.depthCompareOp;
+	// depth_stencil.depthBoundsTestEnable;
+	// depth_stencil.stencilTestEnable;
+	// depth_stencil.front;
+	// depth_stencil.back;
+	// depth_stencil.minDepthBounds;
+	// depth_stencil.maxDepthBounds;
 
 	VkPipelineColorBlendAttachmentState attachments[1] = {};
-	attachments[0].colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+	attachments[0].colorWriteMask =
+			VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
 
 	VkPipelineColorBlendStateCreateInfo blend = { VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO };
-	//blend.logicOpEnable;
-	//blend.logicOp;
+	// blend.logicOpEnable;
+	// blend.logicOp;
 	blend.attachmentCount = ARRAYSIZE(attachments);
 	blend.pAttachments = attachments;
-	//blend.blendConstants[4];
+	// blend.blendConstants[4];
 
-	VkDynamicState dynamic_states[] =
-	{
+	VkDynamicState dynamic_states[] = {
 		VK_DYNAMIC_STATE_VIEWPORT,
 		VK_DYNAMIC_STATE_SCISSOR,
 	};
@@ -854,7 +1048,7 @@ VkPipeline CreateGraphicsPipeline(VkDevice device, VkPipelineCache pipeline_cach
 	pipeline_create_info.pDynamicState = &dynamic;
 	pipeline_create_info.layout = layout;
 	pipeline_create_info.renderPass = render_pass;
-	//pipeline_create_info.subpass = 0;
+	// pipeline_create_info.subpass = 0;
 
 	VkPipeline pipeline = VK_NULL_HANDLE;
 	VK_CHECK(vkCreateGraphicsPipelines(device, pipeline_cache, 1, &pipeline_create_info, nullptr, &pipeline));
@@ -874,7 +1068,8 @@ VkCommandPool CreateCommandBufferPool(VkDevice device, uint32_t family_index)
 	return cmd_pool;
 }
 
-VkImageMemoryBarrier ImageBarrier(VkImage image, VkAccessFlags src_access_mask, VkAccessFlags dst_access_mask, VkImageLayout old_layout, VkImageLayout new_layout)
+VkImageMemoryBarrier ImageBarrier(VkImage image, VkAccessFlags src_access_mask, VkAccessFlags dst_access_mask,
+		VkImageLayout old_layout, VkImageLayout new_layout)
 {
 	VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
 	barrier.srcAccessMask = src_access_mask;
@@ -882,28 +1077,32 @@ VkImageMemoryBarrier ImageBarrier(VkImage image, VkAccessFlags src_access_mask, 
 	barrier.oldLayout = old_layout;
 	barrier.newLayout = new_layout;
 	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	barrier.image = image;
 	barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    //barrier.subresourceRange.baseMipLevel;
-	barrier.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;  // NOTE: Some Android driver ignore this.
-    //barrier.subresourceRange.baseArrayLayer;
+	// barrier.subresourceRange.baseMipLevel;
+	barrier.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;	  // NOTE: Some Android driver ignore this.
+																	  // barrier.subresourceRange.baseArrayLayer;
 	barrier.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;  // NOTE: Some Android driver ignore this.
 
 	return barrier;
 }
 
-VkSwapchainKHR CreateSwapchain(VkDevice device, VkSurfaceKHR surface, VkSurfaceCapabilitiesKHR surface_caps, VkFormat format, uint32_t family_index, uint32_t width, uint32_t height, VkSwapchainKHR old_swapchain)
+VkSwapchainKHR CreateSwapchain(VkDevice device, VkSurfaceKHR surface, VkSurfaceCapabilitiesKHR surface_caps,
+		VkFormat format, uint32_t family_index, uint32_t width, uint32_t height, VkSwapchainKHR old_swapchain)
 {
 	assert(device);
 	assert(surface);
 	assert(format);
 
 	const VkCompositeAlphaFlagBitsKHR surface_composite =
-		(surface_caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR) ? VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR :
-		(surface_caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR) ? VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR :
-		(surface_caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR) ? VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR :
-		VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;  // One option is always guaranteed to be supported.
+			(surface_caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR) ?
+			  VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR :
+			(surface_caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR) ?
+			  VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR :
+			(surface_caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR) ?
+			  VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR :
+			  VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;	 // One option is always guaranteed to be supported.
 
 	VkSwapchainCreateInfoKHR swapchain_create_info = { VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR };
 	swapchain_create_info.surface = surface;
@@ -920,9 +1119,9 @@ VkSwapchainKHR CreateSwapchain(VkDevice device, VkSurfaceKHR surface, VkSurfaceC
 	// Calling vkGetPhysicalDeviceSurfaceCapabilitiesKHR made it go away. Strange.
 	// I feel it should be:
 	swapchain_create_info.preTransform = surface_caps.currentTransform;
-	//swapchain_create_info.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
+	// swapchain_create_info.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
 	// NOTE: Android doesn't support opaque bit, it supports 0x2 or 0x4.
-	swapchain_create_info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;// surface_composite;
+	swapchain_create_info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;  // surface_composite;
 	swapchain_create_info.presentMode = VK_PRESENT_MODE_FIFO_KHR;
 	swapchain_create_info.oldSwapchain = old_swapchain;
 
@@ -932,7 +1131,8 @@ VkSwapchainKHR CreateSwapchain(VkDevice device, VkSurfaceKHR surface, VkSurfaceC
 	return swapchain;
 }
 
-void CreateSwapchain(VkPhysicalDevice physical_device, VkDevice device, VkSurfaceKHR surface, VkFormat format, uint32_t family_index, VkRenderPass render_pass, VkSwapchainKHR old_swapchain, Swapchain& result)
+void CreateSwapchain(VkPhysicalDevice physical_device, VkDevice device, VkSurfaceKHR surface, VkFormat format,
+		uint32_t family_index, VkRenderPass render_pass, VkSwapchainKHR old_swapchain, Swapchain& result)
 {
 	// TODO: asserts?
 
@@ -942,7 +1142,8 @@ void CreateSwapchain(VkPhysicalDevice physical_device, VkDevice device, VkSurfac
 	const uint32_t height = surface_caps.currentExtent.height;
 
 	// TODO: merge the overload in here?
-	VkSwapchainKHR swapchain = CreateSwapchain(device, surface, surface_caps, format, family_index, width, height, old_swapchain);
+	VkSwapchainKHR swapchain =
+			CreateSwapchain(device, surface, surface_caps, format, family_index, width, height, old_swapchain);
 	assert(swapchain);
 
 	uint32_t image_count = 0;
@@ -977,7 +1178,8 @@ void CreateSwapchain(VkPhysicalDevice physical_device, VkDevice device, VkSurfac
 	// TODO: error handling?
 }
 
-void ResizeSwapchainIfNecessary(VkPhysicalDevice physical_device, VkDevice device, VkSurfaceKHR surface, VkFormat format, uint32_t family_index, VkRenderPass render_pass, Swapchain& result)
+void ResizeSwapchainIfNecessary(VkPhysicalDevice physical_device, VkDevice device, VkSurfaceKHR surface,
+		VkFormat format, uint32_t family_index, VkRenderPass render_pass, Swapchain& result)
 {
 	// TODO: asserts
 	assert(result.swapchain);
@@ -986,7 +1188,8 @@ void ResizeSwapchainIfNecessary(VkPhysicalDevice physical_device, VkDevice devic
 	// vulkan-tutorial does:
 	// int width = 0, height = 0;
 	// glfwGetFramebufferSize(window, &width, &height);
-	// while (width == 0 || height == 0) {
+	// while (width == 0 || height == 0)
+	// {
 	// 	glfwGetFramebufferSize(window, &width, &height);
 	// 	glfwWaitEvents();
 	// }
@@ -1026,4 +1229,3 @@ void DestroySwapchain(VkDevice device, const Swapchain& swapchain)
 	}
 	vkDestroySwapchainKHR(device, swapchain.swapchain, nullptr);
 }
-
