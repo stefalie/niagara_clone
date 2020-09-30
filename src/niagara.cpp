@@ -77,8 +77,6 @@ bool LoadMesh(Mesh& result, const char* path)
 
 	for (size_t i = 0; i < obj->face_count; ++i)
 	{
-		assert(obj->face_vertices[i] == 3);
-
 		for (size_t j = 0; j < obj->face_vertices[i]; ++j)
 		{
 			fastObjIndex idx = obj->indices[index_offset + j];
@@ -109,18 +107,32 @@ bool LoadMesh(Mesh& result, const char* path)
 
 	fast_obj_destroy(obj);
 
-	// Make index buffer.
-	std::vector<uint32_t> remap(index_count);
-	size_t unique_vertices_count = meshopt_generateVertexRemap(
-			remap.data(), nullptr, index_count, vertices.data(), index_count, sizeof(Vertex));
+	const bool kUseIndices = false;
+	if (!kUseIndices)  // No indexing.
+	{
+		result.vertices = vertices;
+		result.indices.resize(index_count);
 
-	result.vertices.resize(unique_vertices_count);
-	result.indices.resize(index_count);
+		for (size_t i = 0; i < index_count; ++i)
+		{
+			result.indices[i] = i;
+		}
+	}
+	else
+	{
+		// Make index buffer.
+		std::vector<uint32_t> remap(index_count);
+		size_t unique_vertices_count = meshopt_generateVertexRemap(
+				remap.data(), nullptr, index_count, vertices.data(), index_count, sizeof(Vertex));
 
-	meshopt_remapVertexBuffer(result.vertices.data(), vertices.data(), index_count, sizeof(Vertex), remap.data());
-	meshopt_remapIndexBuffer(result.indices.data(), nullptr, index_count, remap.data());
+		result.vertices.resize(unique_vertices_count);
+		result.indices.resize(index_count);
 
-	// TODO: Optimize mesh for more efficient GPU rendering.
+		meshopt_remapVertexBuffer(result.vertices.data(), vertices.data(), index_count, sizeof(Vertex), remap.data());
+		meshopt_remapIndexBuffer(result.indices.data(), nullptr, index_count, remap.data());
+
+		// TODO: Optimize mesh for more efficient GPU rendering.
+	}
 
 	return true;
 }
@@ -244,7 +256,10 @@ int main()
 	VkCommandBuffer cmd_buf = VK_NULL_HANDLE;
 	VK_CHECK(vkAllocateCommandBuffers(device, &cmd_buf_alloc_info, &cmd_buf));
 
-	while (!glfwWindowShouldClose(window))
+	Mesh mesh;
+	bool mesh_rc = lo
+
+			while (!glfwWindowShouldClose(window))
 	{
 		glfwPollEvents();
 		if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
