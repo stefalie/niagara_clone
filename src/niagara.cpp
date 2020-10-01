@@ -113,7 +113,7 @@ bool LoadMesh(Mesh& result, const char* path)
 
 	fast_obj_destroy(obj);
 
-	const bool kUseIndices = false;
+	const bool kUseIndices = true;
 	if (!kUseIndices)  // No indexing.
 	{
 		result.vertices = vertices;
@@ -429,7 +429,14 @@ int main(int argc, char* argv[])
 		vkCmdSetScissor(cmd_buf, 0, 1, &scissor);
 
 		vkCmdBindPipeline(cmd_buf, VK_PIPELINE_BIND_POINT_GRAPHICS, triangle_pipeline);
-		vkCmdDraw(cmd_buf, 3, 1, 0, 0);
+
+
+		VkDeviceSize dummy_offset = 0;
+		vkCmdBindVertexBuffers(cmd_buf, 0, 1, &vertex_buffer.buffer, &dummy_offset);
+		vkCmdBindIndexBuffer(cmd_buf, index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+		vkCmdDrawIndexed(cmd_buf, (uint32_t)mesh.indices.size(), 1, 0, 0, 0);
+		// vkCmdDraw(cmd_buf, 3, 1, 0, 0);
+
 
 		vkCmdEndRenderPass(cmd_buf);
 
@@ -1087,11 +1094,31 @@ VkPipeline CreateGraphicsPipeline(VkDevice device, VkPipelineCache pipeline_cach
 	stages[1].module = frag;
 	stages[1].pName = "main";
 
+	// TODO: tmp
+	VkVertexInputBindingDescription stream = {};
+	stream.binding = 0;
+	stream.stride = sizeof(Vertex);
+	stream.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+	VkVertexInputAttributeDescription attrs[3] = {};
+	attrs[0].location = 0;
+	attrs[0].binding = 0;
+	attrs[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+	attrs[0].offset = 0;
+	attrs[1].location = 1;
+	attrs[1].binding = 0;
+	attrs[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+	attrs[1].offset = 12;
+	attrs[2].location = 2;
+	attrs[2].binding = 0;
+	attrs[2].format = VK_FORMAT_R32G32_SFLOAT;
+	attrs[2].offset = 24;
+
 	VkPipelineVertexInputStateCreateInfo vertex_input = { VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
-	// vertex_input.vertexBindingDescriptionCount;
-	// vertex_input.pVertexBindingDescriptions;
-	// vertex_input.vertexAttributeDescriptionCount;
-	// vertex_input.pVertexAttributeDescriptions;
+	vertex_input.vertexBindingDescriptionCount = 1;
+	vertex_input.pVertexBindingDescriptions = &stream;
+	vertex_input.vertexAttributeDescriptionCount = ARRAYSIZE(attrs);
+	vertex_input.pVertexAttributeDescriptions = attrs;
+
 
 	VkPipelineInputAssemblyStateCreateInfo input_assembly = {
 		VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO
