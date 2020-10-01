@@ -1,3 +1,9 @@
+// Disable warnings for unscoped enums, the Vulkan headers are full of them.
+#pragma warning(disable : 26812)
+
+// Uninitialized members
+#pragma warning(disable : 26495)
+
 #include <assert.h>
 #include <stdio.h>
 
@@ -67,7 +73,7 @@ bool LoadMesh(Mesh& result, const char* path)
 	size_t index_count = 0;
 	for (size_t i = 0; i < obj->face_count; ++i)
 	{
-		index_count += 3 * (obj->face_vertices[i] - 2);
+		index_count += 3ull * (obj->face_vertices[i] - 2);
 	}
 
 	std::vector<Vertex> vertices(index_count);
@@ -113,7 +119,7 @@ bool LoadMesh(Mesh& result, const char* path)
 		result.vertices = vertices;
 		result.indices.resize(index_count);
 
-		for (size_t i = 0; i < index_count; ++i)
+		for (uint32_t i = 0; i < index_count; ++i)
 		{
 			result.indices[i] = i;
 		}
@@ -135,6 +141,86 @@ bool LoadMesh(Mesh& result, const char* path)
 	}
 
 	return true;
+}
+
+struct Buffer
+{
+	VkBuffer buffer;
+	VkDeviceMemory memory;
+	void* data;
+	size_t size;
+};
+
+// TODO: Handle more gracefully.
+// Also consider accepting two sets of flags, required and optional ones.
+uint32_t SelectMemoryType(const VkPhysicalDeviceMemoryProperties& memory_properties, uint32_t memory_type_bits,
+		VkMemoryPropertyFlags flags)
+{
+	for (uint32_t i = 0; i < memory_properties.memoryTypeCount; ++i)
+	{
+		if (((memory_type_bits & (1 << i)) != 0) && ((memory_properties.memoryTypes[i].propertyFlags & flags) == flags))
+		{
+			return i;
+		}
+	}
+
+	printf("ERROR: No compatible memory type found.\n");
+	assert(false);
+	return ~0u;
+}
+
+void CreateBuffer(Buffer& result, VkDevice device, const VkPhysicalDeviceMemoryProperties& memory_properties,
+		size_t size, VkBufferUsageFlags usage)
+{
+	VkBufferCreateInfo create_info = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+	// create_info.flags;
+	create_info.size = size;
+	create_info.usage = usage;
+	// create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+	VkBuffer buffer = VK_NULL_HANDLE;
+	VK_CHECK(vkCreateBuffer(device, &create_info, nullptr, &buffer));
+	assert(buffer);
+
+	VkMemoryRequirements requirements;
+	vkGetBufferMemoryRequirements(device, buffer, &requirements);
+
+	const uint32_t memory_type = SelectMemoryType(memory_properties, requirements.memoryTypeBits,
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+	// Potential flags:
+	//  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT = 0x00000001,
+	//  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT = 0x00000002,
+	//  VK_MEMORY_PROPERTY_HOST_COHERENT_BIT = 0x00000004,
+	//  VK_MEMORY_PROPERTY_HOST_CACHED_BIT = 0x00000008,
+	//  VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT = 0x00000010,
+	//  VK_MEMORY_PROPERTY_PROTECTED_BIT = 0x00000020,
+	//  VK_MEMORY_PROPERTY_DEVICE_COHERENT_BIT_AMD = 0x00000040,
+	//  VK_MEMORY_PROPERTY_DEVICE_UNCACHED_BIT_AMD = 0x00000080,
+
+	VkMemoryAllocateInfo alloc_info = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
+	alloc_info.allocationSize = requirements.size;
+	alloc_info.memoryTypeIndex = memory_type;
+	VkDeviceMemory memory = VK_NULL_HANDLE;
+	VK_CHECK(vkAllocateMemory(device, &alloc_info, nullptr, &memory));
+	assert(memory);
+
+	VK_CHECK(vkBindBufferMemory(device, buffer, memory, 0));
+
+	void* data = nullptr;
+	VK_CHECK(vkMapMemory(device, memory, 0, size, 0, &data));
+
+	result.buffer = buffer;
+	result.memory = memory;
+	result.size = size;
+	result.data = data;
+}
+
+void DestroyBuffer(const Buffer& buffer, VkDevice device)
+{
+	// No need to unmap.
+	vkFreeMemory(device, buffer.memory, nullptr);
+	vkDestroyBuffer(device, buffer.buffer, nullptr);
 }
 
 struct Swapchain
@@ -159,8 +245,14 @@ void ResizeSwapchainIfNecessary(VkPhysicalDevice physical_device, VkDevice devic
 		VkFormat format, uint32_t family_index, VkRenderPass render_pass, Swapchain& result);
 void DestroySwapchain(VkDevice device, const Swapchain& swapchain);
 
-int main()
+int main(int argc, char* argv[])
 {
+	if (argc < 2)
+	{
+		printf("Usage: %s [mesh]\n", argv[0]);
+		return 1;
+	}
+
 	const int rc = glfwInit();
 	assert(rc == 1);
 
@@ -256,10 +348,25 @@ int main()
 	VkCommandBuffer cmd_buf = VK_NULL_HANDLE;
 	VK_CHECK(vkAllocateCommandBuffers(device, &cmd_buf_alloc_info, &cmd_buf));
 
-	Mesh mesh;
-	bool mesh_rc = lo
+	VkPhysicalDeviceMemoryProperties memory_properties;
+	vkGetPhysicalDeviceMemoryProperties(physical_device, &memory_properties);
 
-			while (!glfwWindowShouldClose(window))
+	Mesh mesh;
+	const bool mesh_rc = LoadMesh(mesh, argv[1]);
+	assert(mesh_rc);
+
+	Buffer vertex_buffer = {};
+	CreateBuffer(vertex_buffer, device, memory_properties, 128 * 1024 * 1024, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+	Buffer index_buffer = {};
+	CreateBuffer(index_buffer, device, memory_properties, 128 * 1024 * 1024, VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+
+
+	assert(vertex_buffer.size >= mesh.vertices.size() * sizeof(Vertex));
+	assert(index_buffer.size >= mesh.indices.size() * sizeof(uint32_t));
+	memcpy(vertex_buffer.data, mesh.vertices.data(), mesh.vertices.size() * sizeof(Vertex));
+	memcpy(index_buffer.data, mesh.indices.data(), mesh.indices.size() * sizeof(uint32_t));
+
+	while (!glfwWindowShouldClose(window))
 	{
 		glfwPollEvents();
 		if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
@@ -369,6 +476,9 @@ int main()
 	}
 
 	VK_CHECK(vkDeviceWaitIdle(device));
+
+	DestroyBuffer(vertex_buffer, device);
+	DestroyBuffer(index_buffer, device);
 
 	vkDestroyCommandPool(device, cmd_buf_pool, nullptr);
 
@@ -978,10 +1088,10 @@ VkPipeline CreateGraphicsPipeline(VkDevice device, VkPipelineCache pipeline_cach
 	stages[1].pName = "main";
 
 	VkPipelineVertexInputStateCreateInfo vertex_input = { VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
-	// jvertex_input.vertexBindingDescriptionCount;
-	// jvertex_input.pVertexBindingDescriptions;
-	// jvertex_input.vertexAttributeDescriptionCount;
-	// jvertex_input.pVertexAttributeDescriptions;
+	// vertex_input.vertexBindingDescriptionCount;
+	// vertex_input.pVertexBindingDescriptions;
+	// vertex_input.vertexAttributeDescriptionCount;
+	// vertex_input.pVertexAttributeDescriptions;
 
 	VkPipelineInputAssemblyStateCreateInfo input_assembly = {
 		VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO
