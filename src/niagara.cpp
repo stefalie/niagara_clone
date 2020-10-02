@@ -920,7 +920,7 @@ VkDevice CreateDevice(VkInstance instance, VkPhysicalDevice physical_device, uin
 	device_create_info.enabledExtensionCount = ARRAYSIZE(extensions);
 
 	VkPhysicalDeviceFeatures features = {};
-	// features.vertexPipelineStoresAndAtomics = VK_TRUE;	// TODO
+	// features.vertexPipelineStoresAndAtomics = VK_TRUE;	// TODO, for us it work, not for arseny.
 	device_create_info.pEnabledFeatures = &features;
 
 	VkDevice device = VK_NULL_HANDLE;
