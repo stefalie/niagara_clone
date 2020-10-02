@@ -54,7 +54,8 @@ VkImageMemoryBarrier ImageBarrier(VkImage image, VkAccessFlags src_access_mask, 
 struct Vertex
 {
 	float vx, vy, vz;
-	float nx, ny, nz;
+	// float nx, ny, nz;
+	uint8_t nx, ny, nz, nw;
 	float tu, tv;
 };
 struct Mesh
@@ -98,12 +99,18 @@ bool LoadMesh(Mesh& result, const char* path)
 
 			Vertex& v = vertices[vertex_offset++];
 
+
+			float nx = obj->normals[idx.n * 3 + 0];
+			float ny = obj->normals[idx.n * 3 + 1];
+			float nz = obj->normals[idx.n * 3 + 2];
+
 			v.vx = obj->positions[idx.p * 3 + 0];
 			v.vy = obj->positions[idx.p * 3 + 1];
 			v.vz = obj->positions[idx.p * 3 + 2];
-			v.nx = obj->normals[idx.n * 3 + 0];
-			v.ny = obj->normals[idx.n * 3 + 1];
-			v.nz = obj->normals[idx.n * 3 + 2];
+			// TODO: Fix rounding.
+			v.nx = uint8_t(nx * 127.0f + 127.0f);
+			v.ny = uint8_t(ny * 127.0f + 127.0f);
+			v.nz = uint8_t(nz * 127.0f + 127.0f);
 			v.tu = obj->texcoords[idx.t * 3 + 0];
 			v.tv = obj->texcoords[idx.t * 3 + 1];
 		}
@@ -594,6 +601,13 @@ VkInstance CreateInstance()
 static VkBool32 DebugReportCallback(VkDebugReportFlagsEXT flags, VkDebugReportObjectTypeEXT objectType, uint64_t object,
 		size_t location, int32_t messageCode, const char* pLayerPrefix, const char* pMessage, void* pUserData)
 {
+	// HACK, TODO, unclear if our bug or vulkan bug
+	// if (strstr(pMessage,
+	//			"Shader requires VkPhysicalDeviceFloat16Int8FeaturesKHR::shaderInt8 but is not enabled on the device"))
+	//{
+	//	return VK_FALSE;
+	//}
+
 	if ((flags & VK_DEBUG_REPORT_DEBUG_BIT_EXT) || (flags & VK_DEBUG_REPORT_INFORMATION_BIT_EXT))
 	{
 		return VK_FALSE;
@@ -680,6 +694,13 @@ static VkBool32 DebugUtilsCallbackLunarG(VkDebugUtilsMessageSeverityFlagBitsEXT 
 		VkDebugUtilsMessageTypeFlagsEXT messageType, const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
 		void* pUserData)
 {
+	// HACK, TODO, unclear if our bug or vulkan bug
+	// if (strstr(pCallbackData->pMessage,
+	//			"Shader requires VkPhysicalDeviceFloat16Int8FeaturesKHR::shaderInt8 but is not enabled on the device"))
+	//{
+	//	return VK_FALSE;
+	//}
+
 	char prefix[64] = "";
 	char* message = new char[strlen(pCallbackData->pMessage) + 5000];
 	assert(message);
@@ -851,9 +872,23 @@ VkPhysicalDevice PickPhysicalDevice(VkInstance instance)
 
 	VkPhysicalDevice ret = VK_NULL_HANDLE;
 
+
 	// Pick 1st discrete GPU.
 	for (uint32_t i = 0; i < physical_device_count; ++i)
 	{
+		{  // TODO
+			// VkPhysicalDeviceProperties2 props2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2 };
+			// vkGetPhysicalDeviceProperties2(physical_devices[i], &props2);
+
+			VkPhysicalDeviceFeatures2 features2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+			VkPhysicalDeviceShaderFloat16Int8FeaturesKHR features_f16i8 = {
+				VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES_KHR
+			};
+			features2.pNext = &features_f16i8;
+			vkGetPhysicalDeviceFeatures2(physical_devices[i], &features2);
+			assert(features_f16i8.shaderInt8);
+		}
+
 		VkPhysicalDeviceProperties props;
 		vkGetPhysicalDeviceProperties(physical_devices[i], &props);
 
@@ -908,9 +943,12 @@ VkDevice CreateDevice(VkInstance instance, VkPhysicalDevice physical_device, uin
 	queue_create_info.queueCount = 1;
 	queue_create_info.pQueuePriorities = queue_priorities;
 
+	// TODO?
 	char const* const extensions[] = {
-		VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-		VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME,
+		VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME,
+		VK_KHR_16BIT_STORAGE_EXTENSION_NAME,		// Using 16 bit in storage buffers
+		VK_KHR_8BIT_STORAGE_EXTENSION_NAME,			// Using 8 bit in storage buffers
+		VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME,	// Using 8/16 bit arithmetic in shaders
 	};
 
 	VkDeviceCreateInfo device_create_info = { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
@@ -919,9 +957,33 @@ VkDevice CreateDevice(VkInstance instance, VkPhysicalDevice physical_device, uin
 	device_create_info.ppEnabledExtensionNames = extensions;
 	device_create_info.enabledExtensionCount = ARRAYSIZE(extensions);
 
-	VkPhysicalDeviceFeatures features = {};
-	// features.vertexPipelineStoresAndAtomics = VK_TRUE;	// TODO, for us it work, not for arseny.
-	device_create_info.pEnabledFeatures = &features;
+
+	VkPhysicalDeviceFeatures2 features2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+	// VkPhysicalDeviceFeatures features = {};
+	// features2.features.vertexPipelineStoresAndAtomics = VK_TRUE;	// TODO, for us it work, not for arseny.
+
+	VkPhysicalDevice8BitStorageFeatures features_8bit = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_8BIT_STORAGE_FEATURES };
+	// features_8bit.storageBuffer8BitAccess = VK_TRUE;
+	features_8bit.uniformAndStorageBuffer8BitAccess = VK_TRUE;	// TODO: the above doesn't work, but this does.
+	// features_8bit.storagePushConstant8 = VK_TRUE;
+	VkPhysicalDevice16BitStorageFeatures features_16bit = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES };
+	features_16bit.storageBuffer16BitAccess = VK_TRUE;
+	// features_16bit.uniformAndStorageBuffer16BitAccess;
+	// features_16bit.storagePushConstant16;
+	// features_16bit.storageInputOutput16;
+
+	VkPhysicalDeviceShaderFloat16Int8FeaturesKHR features_f16i8 = {
+		VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES_KHR
+	};
+	// TODO This makes everything crash, probably we should check if available?
+	// features_f16i8.shaderFloat16 = VK_TRUE;
+	features_f16i8.shaderInt8 = VK_TRUE;
+
+	// device_create_info.pEnabledFeatures = &features;
+	device_create_info.pNext = &features2;
+	features2.pNext = &features_8bit;
+	features_8bit.pNext = &features_16bit;
+	features_16bit.pNext = &features_f16i8;	 // TODO
 
 	VkDevice device = VK_NULL_HANDLE;
 	VK_CHECK(vkCreateDevice(physical_device, &device_create_info, nullptr, &device));
