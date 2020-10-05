@@ -155,5 +155,8 @@
     <CustomBuild Include="shaders\triangle.vert.glsl">
       <Filter>Shaders</Filter>
     </CustomBuild>
+    <CustomBuild Include="shaders\meshlet.mesh.glsl">
+      <Filter>Shaders</Filter>
+    </CustomBuild>
   </ItemGroup>
 </Project>

@@ -16,6 +16,8 @@
 #include <GLFW/glfw3.h>
 #include <GLFW/glfw3native.h>
 
+#define RTX 1
+
 // SHORTCUT: Would need to be checked properly in production.
 #define VK_CHECK(call)            \
 	do                            \
@@ -58,10 +60,25 @@ struct Vertex
 	uint8_t nx, ny, nz, nw;
 	float tu, tv;
 };
+
+struct Meshlet
+{
+	// TODO indirection for now.
+	uint32_t vertices[64];
+
+	// gl_PrimitiveCountNV + gl_PrimitiveINdicesNV[]
+	// together should take no more than 128 bytes, hences 42 triangles + count.
+	uint8_t indices[126];
+
+	uint8_t vertex_count;
+	uint8_t triangle_count;
+};
+
 struct Mesh
 {
 	std::vector<Vertex> vertices;
 	std::vector<uint32_t> indices;
+	std::vector<Meshlet> meshlets;
 };
 
 bool LoadMesh(Mesh& result, const char* path)
@@ -149,6 +166,59 @@ bool LoadMesh(Mesh& result, const char* path)
 	}
 
 	return true;
+}
+
+void BuildMeshlets(Mesh& mesh)
+{
+	Meshlet meshlet = {};
+	std::vector<uint8_t> meshlet_vertices(mesh.vertices.size(), 0xff);
+
+	for (size_t i = 0; i < mesh.indices.size(); i += 3)
+	{
+		const uint32_t a = mesh.indices[i + 0];
+		const uint32_t b = mesh.indices[i + 1];
+		const uint32_t c = mesh.indices[i + 2];
+
+		uint8_t& av = meshlet_vertices[a];
+		uint8_t& bv = meshlet_vertices[b];
+		uint8_t& cv = meshlet_vertices[c];
+
+		// New meshlet needed?
+		if ((av == 0xFF) + (bv == 0xFF) + (cv == 0xFF) + meshlet.vertex_count > 64 ||
+				(meshlet.triangle_count + 1) > (126 / 3))  // Or == 126 / 3
+		{
+			mesh.meshlets.emplace_back(meshlet);
+			meshlet = {};
+			memset(meshlet_vertices.data(), 0xFF, meshlet_vertices.size());
+		}
+
+		if (av == 0xFF)
+		{
+			av = meshlet.vertex_count;
+			meshlet.vertices[meshlet.vertex_count++] = a;
+		}
+		if (bv == 0xFF)
+		{
+			bv = meshlet.vertex_count;
+			meshlet.vertices[meshlet.vertex_count++] = b;
+		}
+		if (cv == 0xFF)
+		{
+			cv = meshlet.vertex_count;
+			meshlet.vertices[meshlet.vertex_count++] = c;
+		}
+
+		meshlet.indices[meshlet.triangle_count * 3 + 0] = av;
+		meshlet.indices[meshlet.triangle_count * 3 + 1] = bv;
+		meshlet.indices[meshlet.triangle_count * 3 + 2] = cv;
+		meshlet.triangle_count++;
+	}
+
+	// Flush last one.
+	if (meshlet.triangle_count > 0)
+	{
+		mesh.meshlets.emplace_back(meshlet);
+	}
 }
 
 struct Buffer
@@ -333,7 +403,11 @@ int main(int argc, char* argv[])
 	CreateSwapchain(
 			physical_device, device, surface, swapchain_format, family_index, render_pass, VK_NULL_HANDLE, swapchain);
 
+#if RTX
+	VkShaderModule triangle_vert = LoadShader(device, "meshlet.mesh.spv");
+#else
 	VkShaderModule triangle_vert = LoadShader(device, "triangle.vert.spv");
+#endif
 	VkShaderModule triangle_frag = LoadShader(device, "triangle.frag.spv");
 
 	// TODO: Critical for perf.
@@ -367,16 +441,27 @@ int main(int argc, char* argv[])
 	const bool mesh_rc = LoadMesh(mesh, argv[1]);
 	assert(mesh_rc);
 
+#if RTX
+	BuildMeshlets(mesh);
+#endif
+
 	Buffer vertex_buffer = {};
-	// CreateBuffer(vertex_buffer, device, memory_properties, 128 * 1024 * 1024, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
 	CreateBuffer(vertex_buffer, device, memory_properties, 128 * 1024 * 1024, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
 	Buffer index_buffer = {};
 	CreateBuffer(index_buffer, device, memory_properties, 128 * 1024 * 1024, VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+#if RTX
+	Buffer meshlet_buffer = {};
+	CreateBuffer(meshlet_buffer, device, memory_properties, 128 * 1024 * 1024, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+#endif
 
 	assert(vertex_buffer.size >= mesh.vertices.size() * sizeof(Vertex));
-	assert(index_buffer.size >= mesh.indices.size() * sizeof(uint32_t));
 	memcpy(vertex_buffer.data, mesh.vertices.data(), mesh.vertices.size() * sizeof(Vertex));
+	assert(index_buffer.size >= mesh.indices.size() * sizeof(uint32_t));
 	memcpy(index_buffer.data, mesh.indices.data(), mesh.indices.size() * sizeof(uint32_t));
+#if RTX
+	assert(meshlet_buffer.size >= mesh.meshlets.size() * sizeof(Meshlet));
+	memcpy(meshlet_buffer.data, mesh.meshlets.data(), mesh.meshlets.size() * sizeof(Meshlet));
+#endif
 
 	while (!glfwWindowShouldClose(window))
 	{
@@ -420,7 +505,7 @@ int main(int argc, char* argv[])
 				&render_begin_barrier);
 
 		VkClearColorValue clear_color = { 48.0f / 255.0f, 10.0f / 255.0f, 36.0f / 255.0f,
-			1.0f };	 // Ubuntu terminal color.
+			1.0f };  // Ubuntu terminal color.
 		VkClearValue clear_value = { clear_color };
 
 		VkRenderPassBeginInfo pass_begin_info = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
@@ -451,25 +536,52 @@ int main(int argc, char* argv[])
 			// Descriptor set binding is a good match for AMD, but not for NVidia (and likely neither for Intel).
 			// We won't use descriptor set binding, we'll use an extension exposes by Intel and NVidia only.
 			// They are like push constants, but for descriptor sets.
-			VkDescriptorBufferInfo buffer_info = {};
-			buffer_info.buffer = vertex_buffer.buffer;
-			buffer_info.offset = 0;
-			buffer_info.range = vertex_buffer.size;
 
-			VkWriteDescriptorSet descriptors[1] = {};
-			descriptors[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;	// Why different here?
+			VkDescriptorBufferInfo vb_info = {};
+			vb_info.buffer = vertex_buffer.buffer;
+			vb_info.offset = 0;
+			vb_info.range = vertex_buffer.size;
+
+#if RTX
+			VkDescriptorBufferInfo mb_info = {};
+			mb_info.buffer = meshlet_buffer.buffer;
+			mb_info.offset = 0;
+			mb_info.range = meshlet_buffer.size;
+
+			// TODO wouldn't it be better to use 1 descriptor set with 2 descriptors?
+			VkWriteDescriptorSet descriptors[2] = {};
+			descriptors[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;  // Why different here?
 			// I guess we skip this because we push and don't have to allocate a set from a pool.
 			// descriptors[0].dstSet = ?;
 			descriptors[0].dstBinding = 0;
 			descriptors[0].descriptorCount = 1;
 			descriptors[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-			descriptors[0].pBufferInfo = &buffer_info;
+			descriptors[0].pBufferInfo = &vb_info;
+
+			descriptors[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			descriptors[1].dstBinding = 1;
+			descriptors[1].descriptorCount = 1;
+			descriptors[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			descriptors[1].pBufferInfo = &mb_info;
+			vkCmdPushDescriptorSetKHR(
+					cmd_buf, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 0, ARRAYSIZE(descriptors), descriptors);
+
+			vkCmdDrawMeshTasksNV(cmd_buf, (uint32_t)mesh.meshlets.size(), 0);
+#else
+			VkWriteDescriptorSet descriptors[1] = {};
+			descriptors[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;  // Why different here?
+			// I guess we skip this because we push and don't have to allocate a set from a pool.
+			// descriptors[0].dstSet = ?;
+			descriptors[0].dstBinding = 0;
+			descriptors[0].descriptorCount = 1;
+			descriptors[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			descriptors[0].pBufferInfo = &vb_info;
 			vkCmdPushDescriptorSetKHR(cmd_buf, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 0, 1, descriptors);
+
+			vkCmdBindIndexBuffer(cmd_buf, index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+			vkCmdDrawIndexed(cmd_buf, (uint32_t)mesh.indices.size(), 1, 0, 0, 0);
+#endif
 		}
-
-
-		vkCmdBindIndexBuffer(cmd_buf, index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
-		vkCmdDrawIndexed(cmd_buf, (uint32_t)mesh.indices.size(), 1, 0, 0, 0);
 		// vkCmdDraw(cmd_buf, 3, 1, 0, 0);
 
 
@@ -519,6 +631,9 @@ int main(int argc, char* argv[])
 
 	VK_CHECK(vkDeviceWaitIdle(device));
 
+#if RTX
+	DestroyBuffer(meshlet_buffer, device);
+#endif
 	DestroyBuffer(vertex_buffer, device);
 	DestroyBuffer(index_buffer, device);
 
@@ -613,10 +728,10 @@ static VkBool32 DebugReportCallback(VkDebugReportFlagsEXT flags, VkDebugReportOb
 		return VK_FALSE;
 	}
 
-	const char* type = (flags & VK_DEBUG_REPORT_ERROR_BIT_EXT)										  ? "ERROR" :
+	const char* type = (flags & VK_DEBUG_REPORT_ERROR_BIT_EXT)                                        ? "ERROR" :
 			(flags & (VK_DEBUG_REPORT_WARNING_BIT_EXT | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT)) ? "WARNING" :
-			(flags & VK_DEBUG_REPORT_DEBUG_BIT_EXT)													  ? "DEBUG" :
-																										  "INFO";
+			(flags & VK_DEBUG_REPORT_DEBUG_BIT_EXT)                                                   ? "DEBUG" :
+                                                                                                        "INFO";
 
 	char message[4096];
 	snprintf(message, ARRAYSIZE(message), "%s: %s\n\n", type, pMessage);
@@ -955,10 +1070,14 @@ VkDevice CreateDevice(VkInstance instance, VkPhysicalDevice physical_device, uin
 
 	// TODO?
 	char const* const extensions[] = {
-		VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME,
-		VK_KHR_16BIT_STORAGE_EXTENSION_NAME,		// Using 16 bit in storage buffers
-		VK_KHR_8BIT_STORAGE_EXTENSION_NAME,			// Using 8 bit in storage buffers
-		VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME,	// Using 8/16 bit arithmetic in shaders
+		VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+		VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME,
+		VK_KHR_16BIT_STORAGE_EXTENSION_NAME,        // Using 16 bit in storage buffers
+		VK_KHR_8BIT_STORAGE_EXTENSION_NAME,         // Using 8 bit in storage buffers
+		VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME,  // Using 8/16 bit arithmetic in shaders
+#if RTX
+		VK_NV_MESH_SHADER_EXTENSION_NAME,
+#endif
 	};
 
 	VkDeviceCreateInfo device_create_info = { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
@@ -974,7 +1093,7 @@ VkDevice CreateDevice(VkInstance instance, VkPhysicalDevice physical_device, uin
 
 	VkPhysicalDevice8BitStorageFeatures features_8bit = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_8BIT_STORAGE_FEATURES };
 	features_8bit.storageBuffer8BitAccess = VK_TRUE;
-	features_8bit.uniformAndStorageBuffer8BitAccess = VK_TRUE;	// TODO: the above alone doesn't work, but this does.
+	features_8bit.uniformAndStorageBuffer8BitAccess = VK_TRUE;  // TODO: the above alone doesn't work, but this does.
 	// features_8bit.storagePushConstant8 = VK_TRUE;
 	VkPhysicalDevice16BitStorageFeatures features_16bit = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES };
 	features_16bit.storageBuffer16BitAccess = VK_TRUE;
@@ -989,11 +1108,20 @@ VkDevice CreateDevice(VkInstance instance, VkPhysicalDevice physical_device, uin
 	// features_f16i8.shaderFloat16 = VK_TRUE;
 	features_f16i8.shaderInt8 = VK_TRUE;
 
+#if RTX
+	VkPhysicalDeviceMeshShaderFeaturesNV mesh_features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_NV };
+	// mesh_features.taskShader = VK_TRUE;
+	mesh_features.meshShader = VK_TRUE;
+#endif
+
 	// device_create_info.pEnabledFeatures = &features;
 	device_create_info.pNext = &features2;
 	features2.pNext = &features_8bit;
 	features_8bit.pNext = &features_16bit;
-	features_16bit.pNext = &features_f16i8;	 // TODO
+	features_16bit.pNext = &features_f16i8;  // TODO
+#if RTX
+	features_f16i8.pNext = &mesh_features;
+#endif
 
 	VkDevice device = VK_NULL_HANDLE;
 	VK_CHECK(vkCreateDevice(physical_device, &device_create_info, nullptr, &device));
@@ -1084,7 +1212,7 @@ VkRenderPass CreateRenderPass(VkDevice device, VkFormat format)
 	attachments[0].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
 	VkAttachmentReference attachment_ref;
-	attachment_ref.attachment = 0;	// Index into attachments for subpass.
+	attachment_ref.attachment = 0;  // Index into attachments for subpass.
 	attachment_ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
 	VkSubpassDescription subpass = {};
@@ -1173,12 +1301,26 @@ VkShaderModule LoadShader(VkDevice device, const char* path)
 
 VkDescriptorSetLayout CreateDescriptorSetLayout(VkDevice device)
 {
+	// TODO extract from SPIR-V
+#if RTX
+	VkDescriptorSetLayoutBinding set_layout_bindings[2] = {};
+	set_layout_bindings[0].binding = 0;
+	set_layout_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	set_layout_bindings[0].descriptorCount = 1;
+	set_layout_bindings[0].stageFlags = VK_SHADER_STAGE_MESH_BIT_NV;
+	// set_layout_bindings[0].pImmutableSamplers;
+	set_layout_bindings[1].binding = 1;
+	set_layout_bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	set_layout_bindings[1].descriptorCount = 1;
+	set_layout_bindings[1].stageFlags = VK_SHADER_STAGE_MESH_BIT_NV;
+#else
 	VkDescriptorSetLayoutBinding set_layout_bindings[1] = {};
 	set_layout_bindings[0].binding = 0;
 	set_layout_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 	set_layout_bindings[0].descriptorCount = 1;
 	set_layout_bindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
 	// set_layout_bindings[0].pImmutableSamplers;
+#endif
 
 	VkDescriptorSetLayoutCreateInfo set_layout_create_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
 	// I guess normally we'd go with VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT.
@@ -1216,7 +1358,11 @@ VkPipeline CreateGraphicsPipeline(VkDevice device, VkPipelineCache pipeline_cach
 
 	VkPipelineShaderStageCreateInfo stages[2] = {};
 	stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+#if RTX
+	stages[0].stage = VK_SHADER_STAGE_MESH_BIT_NV;
+#else
 	stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+#endif
 	stages[0].module = vert;
 	stages[0].pName = "main";
 	stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -1272,7 +1418,7 @@ VkPipeline CreateGraphicsPipeline(VkDevice device, VkPipelineCache pipeline_cach
 	};
 	raster_state.polygonMode = VK_POLYGON_MODE_FILL;
 	// TODO: Count on 0 being ok for all this.
-	// raster_state.cullMode;
+	raster_state.cullMode = VK_CULL_MODE_BACK_BIT;
 	// raster_state.frontFace;
 	// raster_state.depthBiasEnable;
 	// raster_state.depthBiasConstantFactor;
@@ -1368,7 +1514,7 @@ VkImageMemoryBarrier ImageBarrier(VkImage image, VkAccessFlags src_access_mask, 
 	barrier.image = image;
 	barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 	// barrier.subresourceRange.baseMipLevel;
-	barrier.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;	  // NOTE: Some Android driver ignore this.
+	barrier.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;    // NOTE: Some Android driver ignore this.
 																	  // barrier.subresourceRange.baseArrayLayer;
 	barrier.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;  // NOTE: Some Android driver ignore this.
 
@@ -1384,12 +1530,12 @@ VkSwapchainKHR CreateSwapchain(VkDevice device, VkSurfaceKHR surface, VkSurfaceC
 
 	const VkCompositeAlphaFlagBitsKHR surface_composite =
 			(surface_caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR) ?
-			  VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR :
+            VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR :
 			(surface_caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR) ?
-			  VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR :
+            VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR :
 			(surface_caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR) ?
-			  VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR :
-			  VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;	 // One option is always guaranteed to be supported.
+            VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR :
+            VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;  // One option is always guaranteed to be supported.
 
 	VkSwapchainCreateInfoKHR swapchain_create_info = { VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR };
 	swapchain_create_info.surface = surface;
