@@ -16,7 +16,7 @@
 #include <GLFW/glfw3.h>
 #include <GLFW/glfw3native.h>
 
-#define RTX 1
+#define RTX 0
 
 // SHORTCUT: Would need to be checked properly in production.
 #define VK_CHECK(call)            \
@@ -184,12 +184,19 @@ void BuildMeshlets(Mesh& mesh)
 		uint8_t& cv = meshlet_vertices[c];
 
 		// New meshlet needed?
-		if ((av == 0xFF) + (bv == 0xFF) + (cv == 0xFF) + meshlet.vertex_count > 64 ||
+		if (((av == 0xFF) + (bv == 0xFF) + (cv == 0xFF) + meshlet.vertex_count > 64) ||
 				(meshlet.triangle_count + 1) > (126 / 3))  // Or == 126 / 3
 		{
 			mesh.meshlets.emplace_back(meshlet);
+
+			for (size_t j = 0; j < meshlet.vertex_count; ++j)
+			{
+				meshlet_vertices[meshlet.vertices[j]] = 0xFF;
+			}
+			// Slower version of clearing
+			// memset(meshlet_vertices.data(), 0xFF, meshlet_vertices.size());
+
 			meshlet = {};
-			memset(meshlet_vertices.data(), 0xFF, meshlet_vertices.size());
 		}
 
 		if (av == 0xFF)
@@ -323,6 +330,23 @@ void ResizeSwapchainIfNecessary(VkPhysicalDevice physical_device, VkDevice devic
 		VkFormat format, uint32_t family_index, VkRenderPass render_pass, Swapchain& result);
 void DestroySwapchain(VkDevice device, const Swapchain& swapchain);
 
+// TODO: Check if timing/querying capability is available.
+VkQueryPool CreateQueryPool(VkDevice device, uint32_t pool_size)
+
+{
+	VkQueryPoolCreateInfo query_pool_create_info = { VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO };
+	// query_pool_create_info.flags;
+	query_pool_create_info.queryType = VK_QUERY_TYPE_TIMESTAMP;
+	query_pool_create_info.queryCount = pool_size;
+	// query_pool_create_info.pipelineStatistics;
+
+	VkQueryPool query_pool = VK_NULL_HANDLE;
+	VK_CHECK(vkCreateQueryPool(device, &query_pool_create_info, nullptr, &query_pool));
+
+	return query_pool;
+}
+
+
 int main(int argc, char* argv[])
 {
 	if (argc < 2)
@@ -350,6 +374,11 @@ int main(int argc, char* argv[])
 
 	VkPhysicalDevice physical_device = PickPhysicalDevice(instance);
 	assert(physical_device);
+
+	VkPhysicalDeviceProperties physical_device_props = {};
+	vkGetPhysicalDeviceProperties(physical_device, &physical_device_props);
+	assert(physical_device_props.limits.timestampComputeAndGraphics);
+
 
 	const uint32_t family_index = GetGraphicsFamilyIndex(physical_device);
 	assert(family_index != VK_QUEUE_FAMILY_IGNORED);
@@ -402,6 +431,9 @@ int main(int argc, char* argv[])
 	Swapchain swapchain;
 	CreateSwapchain(
 			physical_device, device, surface, swapchain_format, family_index, render_pass, VK_NULL_HANDLE, swapchain);
+
+	VkQueryPool query_pool = CreateQueryPool(device, 128);
+	assert(query_pool);
 
 #if RTX
 	VkShaderModule triangle_vert = LoadShader(device, "meshlet.mesh.spv");
@@ -465,6 +497,8 @@ int main(int argc, char* argv[])
 
 	while (!glfwWindowShouldClose(window))
 	{
+		const double frame_begin_cpu = glfwGetTime() * 1000.0;
+
 		glfwPollEvents();
 		if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
 		{
@@ -494,6 +528,9 @@ int main(int argc, char* argv[])
 		VkCommandBufferBeginInfo begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
 		begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 		VK_CHECK(vkBeginCommandBuffer(cmd_buf, &begin_info));
+
+		vkCmdResetQueryPool(cmd_buf, query_pool, 0, 128);
+		vkCmdWriteTimestamp(cmd_buf, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, query_pool, 0);
 
 		// NOTE: Likely a VKSubpassDependency could be used here instead of the barrier. This is explained in:
 		// https://themaister.net/blog/2019/08/14/yet-another-blog-explaining-vulkan-synchronization/
@@ -602,6 +639,7 @@ int main(int argc, char* argv[])
 				VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 0, nullptr, 1,
 				&render_end_barrier);
 
+		vkCmdWriteTimestamp(cmd_buf, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, query_pool, 1);
 		VK_CHECK(vkEndCommandBuffer(cmd_buf));
 
 		VkPipelineStageFlags submit_stage_mask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
@@ -627,6 +665,23 @@ int main(int argc, char* argv[])
 
 		// TODO go away
 		VK_CHECK(vkDeviceWaitIdle(device));
+
+		{  //  Profiling
+			uint64_t query_results[2];
+			VK_CHECK(vkGetQueryPoolResults(device, query_pool, 0, ARRAYSIZE(query_results), sizeof(query_results),
+					query_results, sizeof(query_results[0]), VK_QUERY_RESULT_64_BIT));
+
+			const double frame_begin_gpu =
+					double(query_results[0]) * physical_device_props.limits.timestampPeriod * 1e-6;
+			const double frame_end_gpu = double(query_results[1]) * physical_device_props.limits.timestampPeriod * 1e-6;
+
+			const double frame_end_cpu = glfwGetTime() * 1000.0;
+
+			char title[256];
+			sprintf(title, "CPU: %.1f ms; GPU: %.3f ms; triangles %d; meshlets %d", (frame_end_cpu - frame_begin_cpu),
+					(frame_end_gpu - frame_begin_gpu), (int)(mesh.indices.size() / 3), (int)(mesh.meshlets.size()));
+			glfwSetWindowTitle(window, title);
+		}
 	}
 
 	VK_CHECK(vkDeviceWaitIdle(device));
@@ -647,6 +702,8 @@ int main(int argc, char* argv[])
 
 	vkDestroyShaderModule(device, triangle_frag, nullptr);
 	vkDestroyShaderModule(device, triangle_vert, nullptr);
+
+	vkDestroyQueryPool(device, query_pool, nullptr);
 
 	DestroySwapchain(device, swapchain);
 
@@ -1419,7 +1476,7 @@ VkPipeline CreateGraphicsPipeline(VkDevice device, VkPipelineCache pipeline_cach
 	raster_state.polygonMode = VK_POLYGON_MODE_FILL;
 	// TODO: Count on 0 being ok for all this.
 	raster_state.cullMode = VK_CULL_MODE_BACK_BIT;
-	// raster_state.frontFace;
+	// raster_state.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 	// raster_state.depthBiasEnable;
 	// raster_state.depthBiasConstantFactor;
 	// raster_state.depthBiasClamp;
