@@ -16,7 +16,7 @@
 #include <GLFW/glfw3.h>
 #include <GLFW/glfw3native.h>
 
-#define RTX 0
+#define RTX 1
 
 // SHORTCUT: Would need to be checked properly in production.
 #define VK_CHECK(call)            \
@@ -495,6 +495,9 @@ int main(int argc, char* argv[])
 	memcpy(meshlet_buffer.data, mesh.meshlets.data(), mesh.meshlets.size() * sizeof(Meshlet));
 #endif
 
+	double frame_avg_cpu = 0.0;
+	double frame_avg_gpu = 0.0;
+
 	while (!glfwWindowShouldClose(window))
 	{
 		const double frame_begin_cpu = glfwGetTime() * 1000.0;
@@ -677,9 +680,12 @@ int main(int argc, char* argv[])
 
 			const double frame_end_cpu = glfwGetTime() * 1000.0;
 
+			frame_avg_cpu = frame_avg_cpu * 0.95 + (frame_end_cpu - frame_begin_cpu) * 0.05;
+			frame_avg_gpu = frame_avg_gpu * 0.95 + (frame_end_gpu - frame_begin_gpu) * 0.05;
+
 			char title[256];
-			sprintf(title, "CPU: %.1f ms; GPU: %.3f ms; triangles %d; meshlets %d", (frame_end_cpu - frame_begin_cpu),
-					(frame_end_gpu - frame_begin_gpu), (int)(mesh.indices.size() / 3), (int)(mesh.meshlets.size()));
+			sprintf(title, "CPU: %.1f ms; GPU: %.3f ms; triangles %d; meshlets %d", frame_avg_cpu, frame_avg_gpu,
+					(int)(mesh.indices.size() / 3), (int)(mesh.meshlets.size()));
 			glfwSetWindowTitle(window, title);
 		}
 	}
