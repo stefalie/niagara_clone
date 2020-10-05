@@ -876,7 +876,12 @@ VkPhysicalDevice PickPhysicalDevice(VkInstance instance)
 	// Pick 1st discrete GPU.
 	for (uint32_t i = 0; i < physical_device_count; ++i)
 	{
-		{  // TODO
+		VkPhysicalDeviceProperties props;
+		vkGetPhysicalDeviceProperties(physical_devices[i], &props);
+
+		printf("GPU %u: %s.\n", i, props.deviceName);
+
+		{  // Check for 8-bit int support.
 			// VkPhysicalDeviceProperties2 props2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2 };
 			// vkGetPhysicalDeviceProperties2(physical_devices[i], &props2);
 
@@ -886,13 +891,13 @@ VkPhysicalDevice PickPhysicalDevice(VkInstance instance)
 			};
 			features2.pNext = &features_f16i8;
 			vkGetPhysicalDeviceFeatures2(physical_devices[i], &features2);
+
+			if (features_f16i8.shaderInt8 != VK_TRUE)
+			{
+				continue;
+			}
 			assert(features_f16i8.shaderInt8);
 		}
-
-		VkPhysicalDeviceProperties props;
-		vkGetPhysicalDeviceProperties(physical_devices[i], &props);
-
-		printf("GPU %u: %s.\n", i, props.deviceName);
 
 		const uint32_t family_index = GetGraphicsFamilyIndex(physical_devices[i]);
 		if (family_index == VK_QUEUE_FAMILY_IGNORED)
@@ -901,6 +906,11 @@ VkPhysicalDevice PickPhysicalDevice(VkInstance instance)
 		}
 
 		if (!SupportsPresentation(physical_devices[i], family_index))
+		{
+			continue;
+		}
+
+		if (props.apiVersion < VK_API_VERSION_1_2)
 		{
 			continue;
 		}
@@ -963,8 +973,8 @@ VkDevice CreateDevice(VkInstance instance, VkPhysicalDevice physical_device, uin
 	// features2.features.vertexPipelineStoresAndAtomics = VK_TRUE;	// TODO, for us it work, not for arseny.
 
 	VkPhysicalDevice8BitStorageFeatures features_8bit = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_8BIT_STORAGE_FEATURES };
-	// features_8bit.storageBuffer8BitAccess = VK_TRUE;
-	features_8bit.uniformAndStorageBuffer8BitAccess = VK_TRUE;	// TODO: the above doesn't work, but this does.
+	features_8bit.storageBuffer8BitAccess = VK_TRUE;
+	features_8bit.uniformAndStorageBuffer8BitAccess = VK_TRUE;	// TODO: the above alone doesn't work, but this does.
 	// features_8bit.storagePushConstant8 = VK_TRUE;
 	VkPhysicalDevice16BitStorageFeatures features_16bit = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES };
 	features_16bit.storageBuffer16BitAccess = VK_TRUE;
