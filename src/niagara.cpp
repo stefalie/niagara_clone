@@ -791,10 +791,11 @@ static VkBool32 DebugReportCallback(VkDebugReportFlagsEXT flags, VkDebugReportOb
 		return VK_FALSE;
 	}
 
-	const char* type = (flags & VK_DEBUG_REPORT_ERROR_BIT_EXT)                                        ? "ERROR" :
-			(flags & (VK_DEBUG_REPORT_WARNING_BIT_EXT | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT)) ? "WARNING" :
-			(flags & VK_DEBUG_REPORT_DEBUG_BIT_EXT)                                                   ? "DEBUG" :
-                                                                                                        "INFO";
+	const char* type = (flags & VK_DEBUG_REPORT_ERROR_BIT_EXT) ?
+			"ERROR" :
+			(flags & (VK_DEBUG_REPORT_WARNING_BIT_EXT | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT)) ?
+			"WARNING" :
+			(flags & VK_DEBUG_REPORT_DEBUG_BIT_EXT) ? "DEBUG" : "INFO";
 
 	char message[4096];
 	snprintf(message, ARRAYSIZE(message), "%s: %s\n\n", type, pMessage);
@@ -1593,12 +1594,12 @@ VkSwapchainKHR CreateSwapchain(VkDevice device, VkSurfaceKHR surface, VkSurfaceC
 
 	const VkCompositeAlphaFlagBitsKHR surface_composite =
 			(surface_caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR) ?
-            VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR :
+			VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR :
 			(surface_caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR) ?
-            VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR :
+			VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR :
 			(surface_caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR) ?
-            VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR :
-            VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;  // One option is always guaranteed to be supported.
+			VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR :
+			VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;  // One option is always guaranteed to be supported.
 
 	VkSwapchainCreateInfoKHR swapchain_create_info = { VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR };
 	swapchain_create_info.surface = surface;

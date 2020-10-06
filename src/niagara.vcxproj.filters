@@ -17,6 +17,9 @@
     <Filter Include="meshoptimizer">
       <UniqueIdentifier>{670142d8-da71-49b3-899c-80d215118dd0}</UniqueIdentifier>
     </Filter>
+    <Filter Include="fast_obj">
+      <UniqueIdentifier>{ddad9390-6ea0-43c6-b7b4-93af1c77e32c}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\extern\glfw\src\context.c">
@@ -116,7 +119,7 @@
       <Filter>meshoptimizer</Filter>
     </ClCompile>
     <ClCompile Include="fast_obj.cpp">
-      <Filter>Source Files</Filter>
+      <Filter>fast_obj</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -146,6 +149,9 @@
     </ClInclude>
     <ClInclude Include="..\extern\meshoptimizer\src\meshoptimizer.h">
       <Filter>meshoptimizer</Filter>
+    </ClInclude>
+    <ClInclude Include="..\extern\fast_obj\fast_obj.h">
+      <Filter>fast_obj</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

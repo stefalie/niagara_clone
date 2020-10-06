@@ -121,6 +121,7 @@
     <ClCompile Include="niagara.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\extern\fast_obj\fast_obj.h" />
     <ClInclude Include="..\extern\glfw\src\egl_context.h" />
     <ClInclude Include="..\extern\glfw\src\internal.h" />
     <ClInclude Include="..\extern\glfw\src\mappings.h" />
