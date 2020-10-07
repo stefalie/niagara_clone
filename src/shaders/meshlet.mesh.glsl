@@ -5,7 +5,7 @@
 #extension GL_NV_mesh_shader : require
 #extension GL_EXT_shader_explicit_arithmetic_types_int8: require
 
-layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 layout(triangles, max_vertices = 64, max_primitives = 42) out;
 
 struct Vertex
@@ -30,7 +30,7 @@ struct Meshlet
 	uint vertices[64];
 	uint8_t indices[126];  // Max 42 triangles.
 	uint8_t vertex_count;
-	uint8_t index_count;
+	uint8_t triangle_count;
 };
 
 layout(binding = 1) readonly buffer Meshlets
@@ -58,9 +58,10 @@ void main()
 		color[i] = vec4(normal * 0.5 + vec3(0.5), 1.0);
 	}
 
-	gl_PrimitiveCountNV = meshlets[mi].index_count / 3;
+	gl_PrimitiveCountNV = meshlets[mi].triangle_count;
 
-	for (int i = 0; i < meshlets[mi].index_count; ++i)
+	const int index_count = 3 * meshlets[mi].triangle_count;
+	for (int i = 0; i < index_count; ++i)
 	{
 		gl_PrimitiveIndicesNV[i] = meshlets[mi].indices[i];
 	}
