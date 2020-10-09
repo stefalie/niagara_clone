@@ -7,7 +7,6 @@ AlignEscapedNewlines: Left
 AlignOperands: false
 AlignTrailingComments: true
 AllowAllParametersOfDeclarationOnNextLine: true
-# As of clang 10.0:
 AllowShortIfStatementsOnASingleLine: Never
 AllowShortBlocksOnASingleLine: false
 AllowShortCaseLabelsOnASingleLine: false
