@@ -24,7 +24,7 @@ layout(binding = 0) readonly buffer Vertices
 // 3 * N vertices (when duplicating everything)
 // N / 2 unique vertices in an ideal world (valence 6)
 // [N / 2, N] unique vertices in practice for high quality meshes.
-// [24, 42] triangles -> Let's use local_size_x == 32
+// [24, 42] vertices -> Let's use local_size_x == 32
 struct Meshlet
 {
 	uint vertices[64];
