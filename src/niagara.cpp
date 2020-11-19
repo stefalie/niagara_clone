@@ -17,6 +17,7 @@
 #include <GLFW/glfw3native.h>
 
 #define RTX 1
+#define FVF 0
 
 // SHORTCUT: Would need to be checked properly in production.
 #define VK_CHECK(call)            \
@@ -436,11 +437,13 @@ int main(int argc, char* argv[])
 	assert(query_pool);
 
 #if RTX
-	VkShaderModule triangle_vert = LoadShader(device, "meshlet.mesh.spv");
+	VkShaderModule mesh_vert = LoadShader(device, "meshlet.mesh.spv");
+#elif FVF
+	VkShaderModule mesh_vert = LoadShader(device, "meshfvf.vert.spv");
 #else
-	VkShaderModule triangle_vert = LoadShader(device, "triangle.vert.spv");
+	VkShaderModule mesh_vert = LoadShader(device, "mesh.vert.spv");
 #endif
-	VkShaderModule triangle_frag = LoadShader(device, "triangle.frag.spv");
+	VkShaderModule mesh_frag = LoadShader(device, "mesh.frag.spv");
 
 	// TODO: Critical for perf.
 	VkPipelineCache pipeline_cache = VK_NULL_HANDLE;
@@ -449,11 +452,11 @@ int main(int argc, char* argv[])
 	VkDescriptorSetLayout set_layout = CreateDescriptorSetLayout(device);
 	assert(set_layout);
 
-	VkPipelineLayout pipeline_layout = CreatePipelineLayout(device, set_layout);
+	VkPipelineLayout mesh_pipeline_layout = CreatePipelineLayout(device, set_layout);
 
-	VkPipeline triangle_pipeline =
-			CreateGraphicsPipeline(device, pipeline_cache, render_pass, pipeline_layout, triangle_vert, triangle_frag);
-	assert(triangle_pipeline);
+	VkPipeline mesh_pipeline =
+			CreateGraphicsPipeline(device, pipeline_cache, render_pass, mesh_pipeline_layout, mesh_vert, mesh_frag);
+	assert(mesh_pipeline);
 
 	VkCommandPool cmd_buf_pool = CreateCommandBufferPool(device, family_index);
 	assert(cmd_buf_pool);
@@ -477,8 +480,13 @@ int main(int argc, char* argv[])
 	BuildMeshlets(mesh);
 #endif
 
+#if FVF
+	VkBufferUsageFlags vertex_buffer_usage_flags = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+#else
+	VkBufferUsageFlags vertex_buffer_usage_flags = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+#endif
 	Buffer vertex_buffer = {};
-	CreateBuffer(vertex_buffer, device, memory_properties, 128 * 1024 * 1024, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+	CreateBuffer(vertex_buffer, device, memory_properties, 128 * 1024 * 1024, vertex_buffer_usage_flags);
 	Buffer index_buffer = {};
 	CreateBuffer(index_buffer, device, memory_properties, 128 * 1024 * 1024, VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
 #if RTX
@@ -565,24 +573,19 @@ int main(int argc, char* argv[])
 		vkCmdSetViewport(cmd_buf, 0, 1, &viewport);
 		vkCmdSetScissor(cmd_buf, 0, 1, &scissor);
 
-		vkCmdBindPipeline(cmd_buf, VK_PIPELINE_BIND_POINT_GRAPHICS, triangle_pipeline);
-
-
-		// Version with vertex buffers.
-		// VkDeviceSize dummy_offset = 0;
-		// vkCmdBindVertexBuffers(cmd_buf, 0, 1, &vertex_buffer.buffer, &dummy_offset);
+		vkCmdBindPipeline(cmd_buf, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh_pipeline);
 
 		{
 			// Descriptor set binding is a good match for AMD, but not for NVidia (and likely neither for Intel).
 			// We won't use descriptor set binding, we'll use an extension exposes by Intel and NVidia only.
 			// They are like push constants, but for descriptor sets.
 
+#if RTX
 			VkDescriptorBufferInfo vb_info = {};
 			vb_info.buffer = vertex_buffer.buffer;
 			vb_info.offset = 0;
 			vb_info.range = vertex_buffer.size;
 
-#if RTX
 			VkDescriptorBufferInfo mb_info = {};
 			mb_info.buffer = meshlet_buffer.buffer;
 			mb_info.offset = 0;
@@ -603,11 +606,22 @@ int main(int argc, char* argv[])
 			descriptors[1].descriptorCount = 1;
 			descriptors[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 			descriptors[1].pBufferInfo = &mb_info;
-			vkCmdPushDescriptorSetKHR(
-					cmd_buf, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 0, ARRAYSIZE(descriptors), descriptors);
+			vkCmdPushDescriptorSetKHR(cmd_buf, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh_pipeline_layout, 0,
+					ARRAYSIZE(descriptors), descriptors);
 
 			vkCmdDrawMeshTasksNV(cmd_buf, (uint32_t)mesh.meshlets.size(), 0);
+#elif FVF
+			VkDeviceSize offset = 0;
+			vkCmdBindVertexBuffers(cmd_buf, 0, 1, &vertex_buffer.buffer, &offset);
+
+			vkCmdBindIndexBuffer(cmd_buf, index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+			vkCmdDrawIndexed(cmd_buf, (uint32_t)mesh.indices.size(), 1, 0, 0, 0);
 #else
+			VkDescriptorBufferInfo vb_info = {};
+			vb_info.buffer = vertex_buffer.buffer;
+			vb_info.offset = 0;
+			vb_info.range = vertex_buffer.size;
+
 			VkWriteDescriptorSet descriptors[1] = {};
 			descriptors[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;  // Why different here?
 			// I guess we skip this because we push and don't have to allocate a set from a pool.
@@ -616,7 +630,8 @@ int main(int argc, char* argv[])
 			descriptors[0].descriptorCount = 1;
 			descriptors[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 			descriptors[0].pBufferInfo = &vb_info;
-			vkCmdPushDescriptorSetKHR(cmd_buf, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 0, 1, descriptors);
+			vkCmdPushDescriptorSetKHR(
+					cmd_buf, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh_pipeline_layout, 0, 1, descriptors);
 
 			vkCmdBindIndexBuffer(cmd_buf, index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
 			vkCmdDrawIndexed(cmd_buf, (uint32_t)mesh.indices.size(), 1, 0, 0, 0);
@@ -667,7 +682,9 @@ int main(int argc, char* argv[])
 		VK_CHECK(vkQueuePresentKHR(queue, &present_info));
 
 		// TODO go away
+		double wait_begin = glfwGetTime() * 1000.0;
 		VK_CHECK(vkDeviceWaitIdle(device));
+		double wait_end = glfwGetTime() * 1000.0;
 
 		{  //  Profiling
 			uint64_t query_results[2];
@@ -684,8 +701,9 @@ int main(int argc, char* argv[])
 			frame_avg_gpu = frame_avg_gpu * 0.95 + (frame_end_gpu - frame_begin_gpu) * 0.05;
 
 			char title[256];
-			sprintf(title, "CPU: %.1f ms; GPU: %.3f ms; triangles %d; meshlets %d", frame_avg_cpu, frame_avg_gpu,
-					(int)(mesh.indices.size() / 3), (int)(mesh.meshlets.size()));
+			sprintf(title, "CPU: %.1f ms; wait %.2f ms; GPU: %.3f ms; triangles %d; meshlets %d", frame_avg_cpu,
+					(wait_end - wait_begin), frame_avg_gpu, (int)(mesh.indices.size() / 3),
+					(int)(mesh.meshlets.size()));
 			glfwSetWindowTitle(window, title);
 		}
 	}
@@ -700,14 +718,14 @@ int main(int argc, char* argv[])
 
 	vkDestroyCommandPool(device, cmd_buf_pool, nullptr);
 
-	vkDestroyPipeline(device, triangle_pipeline, nullptr);
-	vkDestroyPipelineLayout(device, pipeline_layout, nullptr);
+	vkDestroyPipeline(device, mesh_pipeline, nullptr);
+	vkDestroyPipelineLayout(device, mesh_pipeline_layout, nullptr);
 	// vkDestroyPipelineCache(device, pipeline_cache, nullptr);
 
 	vkDestroyDescriptorSetLayout(device, set_layout, nullptr);
 
-	vkDestroyShaderModule(device, triangle_frag, nullptr);
-	vkDestroyShaderModule(device, triangle_vert, nullptr);
+	vkDestroyShaderModule(device, mesh_frag, nullptr);
+	vkDestroyShaderModule(device, mesh_vert, nullptr);
 
 	vkDestroyQueryPool(device, query_pool, nullptr);
 
@@ -1419,8 +1437,10 @@ VkDescriptorSetLayout CreateDescriptorSetLayout(VkDevice device)
 	// I guess normally we'd go with VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT.
 	// But since we're using the push extensions, it's like this:
 	set_layout_create_info.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR;
+#if !FVF
 	set_layout_create_info.bindingCount = ARRAYSIZE(set_layout_bindings);
 	set_layout_create_info.pBindings = set_layout_bindings;
+#endif
 
 	VkDescriptorSetLayout set_layout = VK_NULL_HANDLE;
 	VK_CHECK(vkCreateDescriptorSetLayout(device, &set_layout_create_info, nullptr, &set_layout));
@@ -1465,34 +1485,31 @@ VkPipeline CreateGraphicsPipeline(VkDevice device, VkPipelineCache pipeline_cach
 
 	VkPipelineVertexInputStateCreateInfo vertex_input = { VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
 
-	const bool kUseVertexAttributeDescs = false;
-	if (kUseVertexAttributeDescs)
-	{
-		// TODO: tmp
-		VkVertexInputBindingDescription stream = {};
-		stream.binding = 0;
-		stream.stride = sizeof(Vertex);
-		stream.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-		VkVertexInputAttributeDescription attrs[3] = {};
-		attrs[0].location = 0;
-		attrs[0].binding = 0;
-		attrs[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-		attrs[0].offset = 0;
-		attrs[1].location = 1;
-		attrs[1].binding = 0;
-		attrs[1].format = VK_FORMAT_R32G32B32_SFLOAT;
-		attrs[1].offset = 12;
-		attrs[2].location = 2;
-		attrs[2].binding = 0;
-		attrs[2].format = VK_FORMAT_R32G32_SFLOAT;
-		attrs[2].offset = 24;
+#if FVF
+	// TODO: tmp
+	VkVertexInputBindingDescription fvf_bindings[1] = {};
+	fvf_bindings[0].binding = 0;
+	fvf_bindings[0].stride = sizeof(Vertex);
+	fvf_bindings[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+	VkVertexInputAttributeDescription fvf_attributes[3] = {};
+	fvf_attributes[0].location = 0;
+	fvf_attributes[0].binding = 0;
+	fvf_attributes[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+	fvf_attributes[0].offset = offsetof(Vertex, vx);
+	fvf_attributes[1].location = 1;
+	fvf_attributes[1].binding = 0;
+	fvf_attributes[1].format = VK_FORMAT_R8G8B8_UINT;
+	fvf_attributes[1].offset = offsetof(Vertex, nx);
+	fvf_attributes[2].location = 2;
+	fvf_attributes[2].binding = 0;
+	fvf_attributes[2].format = VK_FORMAT_R32G32_SFLOAT;
+	fvf_attributes[2].offset = offsetof(Vertex, tu);
 
-		vertex_input.vertexBindingDescriptionCount = 1;
-		vertex_input.pVertexBindingDescriptions = &stream;
-		vertex_input.vertexAttributeDescriptionCount = ARRAYSIZE(attrs);
-		vertex_input.pVertexAttributeDescriptions = attrs;
-	}
-
+	vertex_input.vertexBindingDescriptionCount = ARRAYSIZE(fvf_bindings);
+	vertex_input.pVertexBindingDescriptions = fvf_bindings;
+	vertex_input.vertexAttributeDescriptionCount = ARRAYSIZE(fvf_attributes);
+	vertex_input.pVertexAttributeDescriptions = fvf_attributes;
+#endif
 
 	VkPipelineInputAssemblyStateCreateInfo input_assembly = {
 		VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO
