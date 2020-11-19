@@ -256,7 +256,7 @@ uint32_t SelectMemoryType(const VkPhysicalDeviceMemoryProperties& memory_propert
 }
 
 void CreateBuffer(Buffer& result, VkDevice device, const VkPhysicalDeviceMemoryProperties& memory_properties,
-		size_t size, VkBufferUsageFlags usage)
+		size_t size, VkBufferUsageFlags usage, VkMemoryPropertyFlags memory_flags)
 {
 	VkBufferCreateInfo create_info = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
 	// create_info.flags;
@@ -271,8 +271,9 @@ void CreateBuffer(Buffer& result, VkDevice device, const VkPhysicalDeviceMemoryP
 	VkMemoryRequirements requirements;
 	vkGetBufferMemoryRequirements(device, buffer, &requirements);
 
-	const uint32_t memory_type = SelectMemoryType(memory_properties, requirements.memoryTypeBits,
-			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+	const uint32_t memory_type = SelectMemoryType(memory_properties, requirements.memoryTypeBits, memory_flags);
+	// const uint32_t memory_type = SelectMemoryType(memory_properties, requirements.memoryTypeBits,
+	//		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
 	// Potential flags:
 	//  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT = 0x00000001,
@@ -294,12 +295,51 @@ void CreateBuffer(Buffer& result, VkDevice device, const VkPhysicalDeviceMemoryP
 	VK_CHECK(vkBindBufferMemory(device, buffer, memory, 0));
 
 	void* data = nullptr;
-	VK_CHECK(vkMapMemory(device, memory, 0, size, 0, &data));
+	if (memory_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
+	{
+		VK_CHECK(vkMapMemory(device, memory, 0, size, 0, &data));
+	}
 
 	result.buffer = buffer;
 	result.memory = memory;
 	result.size = size;
 	result.data = data;
+}
+
+void UploadBuffer(VkDevice device, VkCommandPool cmd_pool, VkCommandBuffer cmd_buf, VkQueue queue, const Buffer& buffer,
+		const Buffer& scratch, const void* data, size_t size)
+{
+	assert(scratch.data);
+	assert(scratch.size >= size);
+	memcpy(scratch.data, data, size);
+
+	VK_CHECK(vkResetCommandPool(device, cmd_pool, 0));
+
+	VkCommandBufferBeginInfo begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+	begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+	VK_CHECK(vkBeginCommandBuffer(cmd_buf, &begin_info));
+
+	VkBufferCopy region = { 0, 0, VkDeviceSize(size) };
+	vkCmdCopyBuffer(cmd_buf, scratch.buffer, buffer.buffer, 1, &region);
+
+	VkBufferMemoryBarrier copy_barrier = { VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER };
+	copy_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+	copy_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+	copy_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	copy_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	copy_barrier.buffer = buffer.buffer;
+	copy_barrier.offset = 0;
+	copy_barrier.size = size;
+	vkCmdPipelineBarrier(cmd_buf, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+			VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 1, &copy_barrier, 0, nullptr);
+
+	VK_CHECK(vkEndCommandBuffer(cmd_buf));
+
+	VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
+	submit_info.pCommandBuffers = &cmd_buf;
+	submit_info.commandBufferCount = 1;
+	VK_CHECK(vkQueueSubmit(queue, 1, &submit_info, VK_NULL_HANDLE));
+	VK_CHECK(vkDeviceWaitIdle(device));
 }
 
 void DestroyBuffer(const Buffer& buffer, VkDevice device)
@@ -480,27 +520,39 @@ int main(int argc, char* argv[])
 	BuildMeshlets(mesh);
 #endif
 
+
+	Buffer scratch_buffer = {};
+	CreateBuffer(scratch_buffer, device, memory_properties, 128 * 1024 * 1024, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
 #if FVF
-	VkBufferUsageFlags vertex_buffer_usage_flags = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+	VkBufferUsageFlags vertex_buffer_usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
 #else
-	VkBufferUsageFlags vertex_buffer_usage_flags = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+	VkBufferUsageFlags vertex_buffer_usage_flags =
+			VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
 #endif
 	Buffer vertex_buffer = {};
-	CreateBuffer(vertex_buffer, device, memory_properties, 128 * 1024 * 1024, vertex_buffer_usage_flags);
+	CreateBuffer(vertex_buffer, device, memory_properties, 128 * 1024 * 1024, vertex_buffer_usage_flags,
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 	Buffer index_buffer = {};
-	CreateBuffer(index_buffer, device, memory_properties, 128 * 1024 * 1024, VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+	CreateBuffer(index_buffer, device, memory_properties, 128 * 1024 * 1024,
+			VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 #if RTX
 	Buffer meshlet_buffer = {};
-	CreateBuffer(meshlet_buffer, device, memory_properties, 128 * 1024 * 1024, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+	CreateBuffer(meshlet_buffer, device, memory_properties, 128 * 1024 * 1024,
+			VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 #endif
 
 	assert(vertex_buffer.size >= mesh.vertices.size() * sizeof(Vertex));
-	memcpy(vertex_buffer.data, mesh.vertices.data(), mesh.vertices.size() * sizeof(Vertex));
+	UploadBuffer(device, cmd_buf_pool, cmd_buf, queue, vertex_buffer, scratch_buffer, mesh.vertices.data(),
+			mesh.vertices.size() * sizeof(Vertex));
 	assert(index_buffer.size >= mesh.indices.size() * sizeof(uint32_t));
-	memcpy(index_buffer.data, mesh.indices.data(), mesh.indices.size() * sizeof(uint32_t));
+	UploadBuffer(device, cmd_buf_pool, cmd_buf, queue, index_buffer, scratch_buffer, mesh.indices.data(),
+			mesh.indices.size() * sizeof(uint32_t));
 #if RTX
 	assert(meshlet_buffer.size >= mesh.meshlets.size() * sizeof(Meshlet));
-	memcpy(meshlet_buffer.data, mesh.meshlets.data(), mesh.meshlets.size() * sizeof(Meshlet));
+	UploadBuffer(device, cmd_buf_pool, cmd_buf, queue, meshlet_buffer, scratch_buffer, mesh.meshlets.data(),
+			mesh.meshlets.size() * sizeof(Meshlet));
 #endif
 
 	double frame_avg_cpu = 0.0;
@@ -715,6 +767,7 @@ int main(int argc, char* argv[])
 #endif
 	DestroyBuffer(vertex_buffer, device);
 	DestroyBuffer(index_buffer, device);
+	DestroyBuffer(scratch_buffer, device);
 
 	vkDestroyCommandPool(device, cmd_buf_pool, nullptr);
 
