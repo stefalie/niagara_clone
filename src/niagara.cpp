@@ -1064,17 +1064,47 @@ VkPhysicalDevice PickPhysicalDevice(VkInstance instance)
 			// vkGetPhysicalDeviceProperties2(physical_devices[i], &props2);
 
 			VkPhysicalDeviceFeatures2 features2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+			VkPhysicalDevice8BitStorageFeatures features_8bit = {
+				VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_8BIT_STORAGE_FEATURES
+			};
+			VkPhysicalDevice16BitStorageFeatures features_16bit = {
+				VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES
+			};
 			VkPhysicalDeviceShaderFloat16Int8FeaturesKHR features_f16i8 = {
 				VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES_KHR
 			};
-			features2.pNext = &features_f16i8;
+#if RTX
+			VkPhysicalDeviceMeshShaderFeaturesNV mesh_features = {
+				VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_NV
+			};
+#endif
+
+			features2.pNext = &features_8bit;
+			features_8bit.pNext = &features_16bit;
+			features_16bit.pNext = &features_f16i8;
+#if RTX
+			features_f16i8.pNext = &mesh_features;
+#endif
 			vkGetPhysicalDeviceFeatures2(physical_devices[i], &features2);
+
+
+			if (features_8bit.storageBuffer8BitAccess != VK_TRUE ||
+					features_8bit.uniformAndStorageBuffer8BitAccess != VK_TRUE ||
+					features_16bit.storageBuffer16BitAccess != VK_TRUE || features_f16i8.shaderFloat16 != VK_TRUE ||
+					features_f16i8.shaderInt8 != VK_TRUE
+#if RTX
+					|| mesh_features.taskShader != VK_TRUE || mesh_features.meshShader != VK_TRUE
+#endif
+			)
+			{
+				continue;
+			}
+
 
 			if (features_f16i8.shaderInt8 != VK_TRUE)
 			{
 				continue;
 			}
-			assert(features_f16i8.shaderInt8);
 		}
 
 		const uint32_t family_index = GetGraphicsFamilyIndex(physical_devices[i]);
@@ -1168,7 +1198,7 @@ VkDevice CreateDevice(VkInstance instance, VkPhysicalDevice physical_device, uin
 		VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES_KHR
 	};
 	// TODO This makes everything crash, probably we should check if available?
-	// features_f16i8.shaderFloat16 = VK_TRUE;
+	features_f16i8.shaderFloat16 = VK_TRUE;
 	features_f16i8.shaderInt8 = VK_TRUE;
 
 #if RTX
