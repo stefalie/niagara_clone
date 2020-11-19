@@ -16,7 +16,7 @@
 #include <GLFW/glfw3.h>
 #include <GLFW/glfw3native.h>
 
-#define RTX 1
+#define RTX 0
 #define FVF 0
 
 // SHORTCUT: Would need to be checked properly in production.
@@ -53,6 +53,7 @@ VkPipeline CreateGraphicsPipeline(VkDevice device, VkPipelineCache pipeline_cach
 VkCommandPool CreateCommandBufferPool(VkDevice device, uint32_t family_index);
 VkImageMemoryBarrier ImageBarrier(VkImage image, VkAccessFlags src_access_mask, VkAccessFlags dst_access_mask,
 		VkImageLayout old_layout, VkImageLayout new_layout);
+VkBufferMemoryBarrier BufferBarrier(VkBuffer buffer, VkAccessFlags src_access_mask, VkAccessFlags dst_access_mask);
 
 struct Vertex
 {
@@ -309,6 +310,7 @@ void CreateBuffer(Buffer& result, VkDevice device, const VkPhysicalDeviceMemoryP
 void UploadBuffer(VkDevice device, VkCommandPool cmd_pool, VkCommandBuffer cmd_buf, VkQueue queue, const Buffer& buffer,
 		const Buffer& scratch, const void* data, size_t size)
 {
+	// TODO: This is submitting a command buffer and waiting for device idle, batch this.
 	assert(scratch.data);
 	assert(scratch.size >= size);
 	memcpy(scratch.data, data, size);
@@ -322,14 +324,8 @@ void UploadBuffer(VkDevice device, VkCommandPool cmd_pool, VkCommandBuffer cmd_b
 	VkBufferCopy region = { 0, 0, VkDeviceSize(size) };
 	vkCmdCopyBuffer(cmd_buf, scratch.buffer, buffer.buffer, 1, &region);
 
-	VkBufferMemoryBarrier copy_barrier = { VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER };
-	copy_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-	copy_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-	copy_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	copy_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	copy_barrier.buffer = buffer.buffer;
-	copy_barrier.offset = 0;
-	copy_barrier.size = size;
+	VkBufferMemoryBarrier copy_barrier =
+			BufferBarrier(buffer.buffer, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT);
 	vkCmdPipelineBarrier(cmd_buf, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
 			VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 1, &copy_barrier, 0, nullptr);
 
@@ -632,6 +628,8 @@ int main(int argc, char* argv[])
 			// We won't use descriptor set binding, we'll use an extension exposes by Intel and NVidia only.
 			// They are like push constants, but for descriptor sets.
 
+			size_t draw_count = 10;
+
 #if RTX
 			VkDescriptorBufferInfo vb_info = {};
 			vb_info.buffer = vertex_buffer.buffer;
@@ -661,13 +659,19 @@ int main(int argc, char* argv[])
 			vkCmdPushDescriptorSetKHR(cmd_buf, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh_pipeline_layout, 0,
 					ARRAYSIZE(descriptors), descriptors);
 
-			vkCmdDrawMeshTasksNV(cmd_buf, (uint32_t)mesh.meshlets.size(), 0);
+			for (size_t i = 0; i < draw_count; ++i)
+			{
+				vkCmdDrawMeshTasksNV(cmd_buf, (uint32_t)mesh.meshlets.size(), 0);
+			}
 #elif FVF
 			VkDeviceSize offset = 0;
 			vkCmdBindVertexBuffers(cmd_buf, 0, 1, &vertex_buffer.buffer, &offset);
 
 			vkCmdBindIndexBuffer(cmd_buf, index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
-			vkCmdDrawIndexed(cmd_buf, (uint32_t)mesh.indices.size(), 1, 0, 0, 0);
+			for (size_t i = 0; i < draw_count; ++i)
+			{
+				vkCmdDrawIndexed(cmd_buf, (uint32_t)mesh.indices.size(), 1, 0, 0, 0);
+			}
 #else
 			VkDescriptorBufferInfo vb_info = {};
 			vb_info.buffer = vertex_buffer.buffer;
@@ -686,7 +690,10 @@ int main(int argc, char* argv[])
 					cmd_buf, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh_pipeline_layout, 0, 1, descriptors);
 
 			vkCmdBindIndexBuffer(cmd_buf, index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
-			vkCmdDrawIndexed(cmd_buf, (uint32_t)mesh.indices.size(), 1, 0, 0, 0);
+			for (size_t i = 0; i < draw_count; ++i)
+			{
+				vkCmdDrawIndexed(cmd_buf, (uint32_t)mesh.indices.size(), 1, 0, 0, 0);
+			}
 #endif
 		}
 		// vkCmdDraw(cmd_buf, 3, 1, 0, 0);
@@ -1683,6 +1690,18 @@ VkImageMemoryBarrier ImageBarrier(VkImage image, VkAccessFlags src_access_mask, 
 
 	return barrier;
 }
+VkBufferMemoryBarrier BufferBarrier(VkBuffer buffer, VkAccessFlags src_access_mask, VkAccessFlags dst_access_mask)
+{
+	VkBufferMemoryBarrier barrier = { VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER };
+	barrier.srcAccessMask = src_access_mask;
+	barrier.dstAccessMask = dst_access_mask;
+	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.buffer = buffer;
+	barrier.offset = 0;
+	barrier.size = VK_WHOLE_SIZE;  // Broken on some Android devices.
+	return barrier;
+}
 
 VkSwapchainKHR CreateSwapchain(VkDevice device, VkSurfaceKHR surface, VkSurfaceCapabilitiesKHR surface_caps,
 		VkFormat format, uint32_t family_index, uint32_t width, uint32_t height, VkSwapchainKHR old_swapchain)
@@ -1718,7 +1737,8 @@ VkSwapchainKHR CreateSwapchain(VkDevice device, VkSurfaceKHR surface, VkSurfaceC
 	// swapchain_create_info.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
 	// NOTE: Android doesn't support opaque bit, it supports 0x2 or 0x4.
 	swapchain_create_info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;  // surface_composite;
-	swapchain_create_info.presentMode = VK_PRESENT_MODE_FIFO_KHR;
+	// swapchain_create_info.presentMode = VK_PRESENT_MODE_FIFO_KHR;
+	swapchain_create_info.presentMode = VK_PRESENT_MODE_IMMEDIATE_KHR;
 	swapchain_create_info.oldSwapchain = old_swapchain;
 
 	VkSwapchainKHR swapchain = VK_NULL_HANDLE;
