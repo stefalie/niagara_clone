@@ -16,7 +16,7 @@
 #include <GLFW/glfw3.h>
 #include <GLFW/glfw3native.h>
 
-#define RTX 0
+#define RTX 1
 #define FVF 0
 
 // SHORTCUT: Would need to be checked properly in production.
@@ -57,10 +57,13 @@ VkBufferMemoryBarrier BufferBarrier(VkBuffer buffer, VkAccessFlags src_access_ma
 
 struct Vertex
 {
-	float vx, vy, vz;
+	// TODO: Do this switch optionally, via flag.
+	//float vx, vy, vz;
+	uint16_t vx, vy, vz;
 	// float nx, ny, nz;
 	uint8_t nx, ny, nz, nw;
-	float tu, tv;
+	//float tu, tv;
+	uint16_t tu, tv;
 };
 
 struct Meshlet
@@ -123,15 +126,20 @@ bool LoadMesh(Mesh& result, const char* path)
 			float ny = obj->normals[idx.n * 3 + 1];
 			float nz = obj->normals[idx.n * 3 + 2];
 
-			v.vx = obj->positions[idx.p * 3 + 0];
-			v.vy = obj->positions[idx.p * 3 + 1];
-			v.vz = obj->positions[idx.p * 3 + 2];
+			//v.vx = obj->positions[idx.p * 3 + 0];
+			//v.vy = obj->positions[idx.p * 3 + 1];
+			//v.vz = obj->positions[idx.p * 3 + 2];
+			v.vx = meshopt_quantizeHalf(obj->positions[idx.p * 3 + 0]);
+			v.vy = meshopt_quantizeHalf(obj->positions[idx.p * 3 + 1]);
+			v.vz = meshopt_quantizeHalf(obj->positions[idx.p * 3 + 2]);
 			// TODO: Fix rounding.
 			v.nx = uint8_t(nx * 127.0f + 127.0f);
 			v.ny = uint8_t(ny * 127.0f + 127.0f);
 			v.nz = uint8_t(nz * 127.0f + 127.0f);
-			v.tu = obj->texcoords[idx.t * 3 + 0];
-			v.tv = obj->texcoords[idx.t * 3 + 1];
+			//v.tu = obj->texcoords[idx.t * 3 + 0];
+			//v.tv = obj->texcoords[idx.t * 3 + 1];
+			v.tu = meshopt_quantizeHalf(obj->texcoords[idx.t * 3 + 0]);
+			v.tv = meshopt_quantizeHalf(obj->texcoords[idx.t * 3 + 1]);
 		}
 
 		index_offset += obj->face_vertices[i];
@@ -300,6 +308,8 @@ void CreateBuffer(Buffer& result, VkDevice device, const VkPhysicalDeviceMemoryP
 	{
 		VK_CHECK(vkMapMemory(device, memory, 0, size, 0, &data));
 	}
+	// I think Areseny mentioned something along the lines: "host visible + coherent is similar to OpenGL's persistent
+	// (+ coherent?)".
 
 	result.buffer = buffer;
 	result.memory = memory;
@@ -625,7 +635,7 @@ int main(int argc, char* argv[])
 
 		{
 			// Descriptor set binding is a good match for AMD, but not for NVidia (and likely neither for Intel).
-			// We won't use descriptor set binding, we'll use an extension exposes by Intel and NVidia only.
+			// We won't use descriptor set binding, we'll use an extension exposed by Intel and NVidia only.
 			// They are like push constants, but for descriptor sets.
 
 			size_t draw_count = 10;
@@ -869,10 +879,11 @@ static VkBool32 DebugReportCallback(VkDebugReportFlagsEXT flags, VkDebugReportOb
 		return VK_FALSE;
 	}
 
-	const char* type = (flags & VK_DEBUG_REPORT_ERROR_BIT_EXT)                                        ? "ERROR" :
-			(flags & (VK_DEBUG_REPORT_WARNING_BIT_EXT | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT)) ? "WARNING" :
-			(flags & VK_DEBUG_REPORT_DEBUG_BIT_EXT)                                                   ? "DEBUG" :
-                                                                                                        "INFO";
+	const char* type = (flags & VK_DEBUG_REPORT_ERROR_BIT_EXT) ?
+			"ERROR" :
+			(flags & (VK_DEBUG_REPORT_WARNING_BIT_EXT | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT)) ?
+			"WARNING" :
+			(flags & VK_DEBUG_REPORT_DEBUG_BIT_EXT) ? "DEBUG" : "INFO";
 
 	char message[4096];
 	snprintf(message, ARRAYSIZE(message), "%s: %s\n\n", type, pMessage);
@@ -1260,7 +1271,7 @@ VkDevice CreateDevice(VkInstance instance, VkPhysicalDevice physical_device, uin
 
 	VkPhysicalDeviceFeatures2 features2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
 	// VkPhysicalDeviceFeatures features = {};
-	// features2.features.vertexPipelineStoresAndAtomics = VK_TRUE;	// TODO, for us it work, not for arseny.
+	// features2.features.vertexPipelineStoresAndAtomics = VK_TRUE;	// TODO, for us it works, not for arseny.
 
 	VkPhysicalDevice8BitStorageFeatures features_8bit = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_8BIT_STORAGE_FEATURES };
 	features_8bit.storageBuffer8BitAccess = VK_TRUE;
@@ -1554,7 +1565,8 @@ VkPipeline CreateGraphicsPipeline(VkDevice device, VkPipelineCache pipeline_cach
 	VkVertexInputAttributeDescription fvf_attributes[3] = {};
 	fvf_attributes[0].location = 0;
 	fvf_attributes[0].binding = 0;
-	fvf_attributes[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+	//fvf_attributes[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+	fvf_attributes[0].format = VK_FORMAT_R16G16B16_SFLOAT;
 	fvf_attributes[0].offset = offsetof(Vertex, vx);
 	fvf_attributes[1].location = 1;
 	fvf_attributes[1].binding = 0;
@@ -1562,7 +1574,8 @@ VkPipeline CreateGraphicsPipeline(VkDevice device, VkPipelineCache pipeline_cach
 	fvf_attributes[1].offset = offsetof(Vertex, nx);
 	fvf_attributes[2].location = 2;
 	fvf_attributes[2].binding = 0;
-	fvf_attributes[2].format = VK_FORMAT_R32G32_SFLOAT;
+	//fvf_attributes[2].format = VK_FORMAT_R32G32_SFLOAT;
+	fvf_attributes[2].format = VK_FORMAT_R16G16_SFLOAT;
 	fvf_attributes[2].offset = offsetof(Vertex, tu);
 
 	vertex_input.vertexBindingDescriptionCount = ARRAYSIZE(fvf_bindings);
@@ -1712,12 +1725,12 @@ VkSwapchainKHR CreateSwapchain(VkDevice device, VkSurfaceKHR surface, VkSurfaceC
 
 	const VkCompositeAlphaFlagBitsKHR surface_composite =
 			(surface_caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR) ?
-            VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR :
+			VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR :
 			(surface_caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR) ?
-            VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR :
+			VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR :
 			(surface_caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR) ?
-            VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR :
-            VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;  // One option is always guaranteed to be supported.
+			VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR :
+			VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;  // One option is always guaranteed to be supported.
 
 	VkSwapchainCreateInfoKHR swapchain_create_info = { VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR };
 	swapchain_create_info.surface = surface;
