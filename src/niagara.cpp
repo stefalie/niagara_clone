@@ -58,11 +58,11 @@ VkBufferMemoryBarrier BufferBarrier(VkBuffer buffer, VkAccessFlags src_access_ma
 struct Vertex
 {
 	// TODO: Do this switch optionally, via flag.
-	//float vx, vy, vz;
+	// float vx, vy, vz;
 	uint16_t vx, vy, vz;
 	// float nx, ny, nz;
 	uint8_t nx, ny, nz, nw;
-	//float tu, tv;
+	// float tu, tv;
 	uint16_t tu, tv;
 };
 
@@ -72,8 +72,13 @@ struct Meshlet
 	uint32_t vertices[64];
 
 	// gl_PrimitiveCountNV + gl_PrimitiveINdicesNV[]
-	// together should take no more than 128 bytes, hences 42 triangles + count.
-	uint8_t indices[126];
+	// OLD: // together should take no more than 128 bytes, hence 42 triangles + count.
+	// together they up a multiple of 128 bytes, indices take bytes, the count 4 bytes (wtf, why?), hence 126 triangles
+	// + count.
+	uint8_t indices[126 * 3];
+
+	uint8_t pad_1;
+	uint8_t pad_2;
 
 	uint8_t vertex_count;
 	uint8_t triangle_count;
@@ -126,9 +131,9 @@ bool LoadMesh(Mesh& result, const char* path)
 			float ny = obj->normals[idx.n * 3 + 1];
 			float nz = obj->normals[idx.n * 3 + 2];
 
-			//v.vx = obj->positions[idx.p * 3 + 0];
-			//v.vy = obj->positions[idx.p * 3 + 1];
-			//v.vz = obj->positions[idx.p * 3 + 2];
+			// v.vx = obj->positions[idx.p * 3 + 0];
+			// v.vy = obj->positions[idx.p * 3 + 1];
+			// v.vz = obj->positions[idx.p * 3 + 2];
 			v.vx = meshopt_quantizeHalf(obj->positions[idx.p * 3 + 0]);
 			v.vy = meshopt_quantizeHalf(obj->positions[idx.p * 3 + 1]);
 			v.vz = meshopt_quantizeHalf(obj->positions[idx.p * 3 + 2]);
@@ -136,8 +141,8 @@ bool LoadMesh(Mesh& result, const char* path)
 			v.nx = uint8_t(nx * 127.0f + 127.0f);
 			v.ny = uint8_t(ny * 127.0f + 127.0f);
 			v.nz = uint8_t(nz * 127.0f + 127.0f);
-			//v.tu = obj->texcoords[idx.t * 3 + 0];
-			//v.tv = obj->texcoords[idx.t * 3 + 1];
+			// v.tu = obj->texcoords[idx.t * 3 + 0];
+			// v.tv = obj->texcoords[idx.t * 3 + 1];
 			v.tu = meshopt_quantizeHalf(obj->texcoords[idx.t * 3 + 0]);
 			v.tv = meshopt_quantizeHalf(obj->texcoords[idx.t * 3 + 1]);
 		}
@@ -172,7 +177,25 @@ bool LoadMesh(Mesh& result, const char* path)
 		meshopt_remapVertexBuffer(result.vertices.data(), vertices.data(), index_count, sizeof(Vertex), remap.data());
 		meshopt_remapIndexBuffer(result.indices.data(), nullptr, index_count, remap.data());
 
-		// TODO: Optimize mesh for more efficient GPU rendering.
+		const bool kSimulateShittyOrdering = false;
+		if (kSimulateShittyOrdering)
+		{
+			struct Triangle
+			{
+				unsigned int v[3];
+			};
+			std::random_shuffle((Triangle*)result.indices.data(), (Triangle*)(result.indices.data() + index_count));
+		}
+
+		// Optimize mesh for more efficient GPU rendering.
+		const bool kOptimizeVertexCache = true;
+		if (kOptimizeVertexCache)
+		{
+			meshopt_optimizeVertexCache(
+					result.indices.data(), result.indices.data(), index_count, unique_vertices_count);
+			meshopt_optimizeVertexFetch(result.vertices.data(), result.indices.data(), index_count,
+					result.vertices.data(), unique_vertices_count, sizeof(Vertex));
+		}
 	}
 
 	return true;
@@ -194,8 +217,7 @@ void BuildMeshlets(Mesh& mesh)
 		uint8_t& cv = meshlet_vertices[c];
 
 		// New meshlet needed?
-		if (((av == 0xFF) + (bv == 0xFF) + (cv == 0xFF) + meshlet.vertex_count > 64) ||
-				(meshlet.triangle_count + 1) > (126 / 3))  // Or == 126 / 3
+		if (((av == 0xFF) + (bv == 0xFF) + (cv == 0xFF) + meshlet.vertex_count > 64) || (meshlet.triangle_count >= 126))
 		{
 			mesh.meshlets.emplace_back(meshlet);
 
@@ -433,8 +455,8 @@ int main(int argc, char* argv[])
 	VkDevice device = CreateDevice(instance, physical_device, family_index);
 	assert(device);
 
-	const int window_width = 1024;
-	const int window_height = 768;
+	const int window_width = 1024 * 2;
+	const int window_height = 768 * 2;
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);  // For NVidia
 	GLFWwindow* window = glfwCreateWindow(window_width, window_height, "Hello Vulkan", nullptr, nullptr);
 	assert(window);
@@ -638,7 +660,7 @@ int main(int argc, char* argv[])
 			// We won't use descriptor set binding, we'll use an extension exposed by Intel and NVidia only.
 			// They are like push constants, but for descriptor sets.
 
-			size_t draw_count = 10;
+			size_t draw_count = 200;
 
 #if RTX
 			VkDescriptorBufferInfo vb_info = {};
@@ -1565,7 +1587,7 @@ VkPipeline CreateGraphicsPipeline(VkDevice device, VkPipelineCache pipeline_cach
 	VkVertexInputAttributeDescription fvf_attributes[3] = {};
 	fvf_attributes[0].location = 0;
 	fvf_attributes[0].binding = 0;
-	//fvf_attributes[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+	// fvf_attributes[0].format = VK_FORMAT_R32G32B32_SFLOAT;
 	fvf_attributes[0].format = VK_FORMAT_R16G16B16_SFLOAT;
 	fvf_attributes[0].offset = offsetof(Vertex, vx);
 	fvf_attributes[1].location = 1;
@@ -1574,7 +1596,7 @@ VkPipeline CreateGraphicsPipeline(VkDevice device, VkPipelineCache pipeline_cach
 	fvf_attributes[1].offset = offsetof(Vertex, nx);
 	fvf_attributes[2].location = 2;
 	fvf_attributes[2].binding = 0;
-	//fvf_attributes[2].format = VK_FORMAT_R32G32_SFLOAT;
+	// fvf_attributes[2].format = VK_FORMAT_R32G32_SFLOAT;
 	fvf_attributes[2].format = VK_FORMAT_R16G16_SFLOAT;
 	fvf_attributes[2].offset = offsetof(Vertex, tu);
 
