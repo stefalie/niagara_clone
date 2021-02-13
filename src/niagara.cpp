@@ -17,7 +17,6 @@
 #include <GLFW/glfw3native.h>
 
 #define RTX 1
-#define FVF 0
 
 // SHORTCUT: Would need to be checked properly in production.
 #define VK_CHECK(call)            \
@@ -77,8 +76,8 @@ struct Meshlet
 	// + count. We lower to 124 triangles for a divisibility by 4.
 	uint8_t indices[124 * 3];
 
-	//uint8_t pad_1;
-	//uint8_t pad_2;
+	// uint8_t pad_1;
+	// uint8_t pad_2;
 
 	uint8_t vertex_count;
 	uint8_t triangle_count;
@@ -506,8 +505,6 @@ int main(int argc, char* argv[])
 
 #if RTX
 	VkShaderModule mesh_vert = LoadShader(device, "meshlet.mesh.spv");
-#elif FVF
-	VkShaderModule mesh_vert = LoadShader(device, "meshfvf.vert.spv");
 #else
 	VkShaderModule mesh_vert = LoadShader(device, "mesh.vert.spv");
 #endif
@@ -553,15 +550,9 @@ int main(int argc, char* argv[])
 	CreateBuffer(scratch_buffer, device, memory_properties, 128 * 1024 * 1024, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
-#if FVF
-	VkBufferUsageFlags vertex_buffer_usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-#else
-	VkBufferUsageFlags vertex_buffer_usage_flags =
-			VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-#endif
 	Buffer vertex_buffer = {};
-	CreateBuffer(vertex_buffer, device, memory_properties, 128 * 1024 * 1024, vertex_buffer_usage_flags,
-			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+	CreateBuffer(vertex_buffer, device, memory_properties, 128 * 1024 * 1024,
+			VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 	Buffer index_buffer = {};
 	CreateBuffer(index_buffer, device, memory_properties, 128 * 1024 * 1024,
 			VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
@@ -694,15 +685,6 @@ int main(int argc, char* argv[])
 			for (size_t i = 0; i < draw_count; ++i)
 			{
 				vkCmdDrawMeshTasksNV(cmd_buf, (uint32_t)mesh.meshlets.size(), 0);
-			}
-#elif FVF
-			VkDeviceSize offset = 0;
-			vkCmdBindVertexBuffers(cmd_buf, 0, 1, &vertex_buffer.buffer, &offset);
-
-			vkCmdBindIndexBuffer(cmd_buf, index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
-			for (size_t i = 0; i < draw_count; ++i)
-			{
-				vkCmdDrawIndexed(cmd_buf, (uint32_t)mesh.indices.size(), 1, 0, 0, 0);
 			}
 #else
 			VkDescriptorBufferInfo vb_info = {};
@@ -1530,10 +1512,8 @@ VkDescriptorSetLayout CreateDescriptorSetLayout(VkDevice device)
 	// I guess normally we'd go with VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT.
 	// But since we're using the push extensions, it's like this:
 	set_layout_create_info.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR;
-#if !FVF
 	set_layout_create_info.bindingCount = ARRAYSIZE(set_layout_bindings);
 	set_layout_create_info.pBindings = set_layout_bindings;
-#endif
 
 	VkDescriptorSetLayout set_layout = VK_NULL_HANDLE;
 	VK_CHECK(vkCreateDescriptorSetLayout(device, &set_layout_create_info, nullptr, &set_layout));
@@ -1577,34 +1557,6 @@ VkPipeline CreateGraphicsPipeline(VkDevice device, VkPipelineCache pipeline_cach
 	stages[1].pName = "main";
 
 	VkPipelineVertexInputStateCreateInfo vertex_input = { VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
-
-#if FVF
-	// TODO: tmp
-	VkVertexInputBindingDescription fvf_bindings[1] = {};
-	fvf_bindings[0].binding = 0;
-	fvf_bindings[0].stride = sizeof(Vertex);
-	fvf_bindings[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-	VkVertexInputAttributeDescription fvf_attributes[3] = {};
-	fvf_attributes[0].location = 0;
-	fvf_attributes[0].binding = 0;
-	// fvf_attributes[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-	fvf_attributes[0].format = VK_FORMAT_R16G16B16_SFLOAT;
-	fvf_attributes[0].offset = offsetof(Vertex, vx);
-	fvf_attributes[1].location = 1;
-	fvf_attributes[1].binding = 0;
-	fvf_attributes[1].format = VK_FORMAT_R8G8B8_UINT;
-	fvf_attributes[1].offset = offsetof(Vertex, nx);
-	fvf_attributes[2].location = 2;
-	fvf_attributes[2].binding = 0;
-	// fvf_attributes[2].format = VK_FORMAT_R32G32_SFLOAT;
-	fvf_attributes[2].format = VK_FORMAT_R16G16_SFLOAT;
-	fvf_attributes[2].offset = offsetof(Vertex, tu);
-
-	vertex_input.vertexBindingDescriptionCount = ARRAYSIZE(fvf_bindings);
-	vertex_input.pVertexBindingDescriptions = fvf_bindings;
-	vertex_input.vertexAttributeDescriptionCount = ARRAYSIZE(fvf_attributes);
-	vertex_input.pVertexAttributeDescriptions = fvf_attributes;
-#endif
 
 	VkPipelineInputAssemblyStateCreateInfo input_assembly = {
 		VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO

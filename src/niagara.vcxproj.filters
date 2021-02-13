@@ -161,9 +161,6 @@
     <CustomBuild Include="shaders\mesh.vert.glsl">
       <Filter>Shaders</Filter>
     </CustomBuild>
-    <CustomBuild Include="shaders\meshfvf.vert.glsl">
-      <Filter>Shaders</Filter>
-    </CustomBuild>
     <CustomBuild Include="shaders\meshlet.mesh.glsl">
       <Filter>Shaders</Filter>
     </CustomBuild>
