@@ -59,7 +59,7 @@ struct Vertex
 {
 	// TODO: Do this switch optionally, via flag.
 	// float vx, vy, vz;
-	uint16_t vx, vy, vz;
+	uint16_t vx, vy, vz, vw;
 	// float nx, ny, nz;
 	uint8_t nx, ny, nz, nw;
 	// float tu, tv;
@@ -74,11 +74,11 @@ struct Meshlet
 	// gl_PrimitiveCountNV + gl_PrimitiveINdicesNV[]
 	// OLD: // together should take no more than 128 bytes, hence 42 triangles + count.
 	// together they up a multiple of 128 bytes, indices take bytes, the count 4 bytes (wtf, why?), hence 126 triangles
-	// + count.
-	uint8_t indices[126 * 3];
+	// + count. We lower to 124 triangles for a divisibility by 4.
+	uint8_t indices[124 * 3];
 
-	uint8_t pad_1;
-	uint8_t pad_2;
+	//uint8_t pad_1;
+	//uint8_t pad_2;
 
 	uint8_t vertex_count;
 	uint8_t triangle_count;
@@ -217,7 +217,7 @@ void BuildMeshlets(Mesh& mesh)
 		uint8_t& cv = meshlet_vertices[c];
 
 		// New meshlet needed?
-		if (((av == 0xFF) + (bv == 0xFF) + (cv == 0xFF) + meshlet.vertex_count > 64) || (meshlet.triangle_count >= 126))
+		if (((av == 0xFF) + (bv == 0xFF) + (cv == 0xFF) + meshlet.vertex_count > 64) || (meshlet.triangle_count >= 124))
 		{
 			mesh.meshlets.emplace_back(meshlet);
 

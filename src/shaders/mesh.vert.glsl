@@ -17,7 +17,7 @@
 struct Vertex
 {
 	//float vx, vy, vz;
-	float16_t vx, vy, vz;
+	float16_t vx, vy, vz, vw;
 	//float nx, ny, nz;
 	// TODO: unpack currently doesn't work, because the alignment of the field
 	// inside the Vertex struct is incorrect with the uint.
