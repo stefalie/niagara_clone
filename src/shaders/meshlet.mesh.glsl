@@ -10,6 +10,8 @@
 #extension GL_EXT_shader_16bit_storage : require
 #extension GL_EXT_shader_explicit_arithmetic_types : require
 
+#define DEBUG 1
+
 // 64 for potential AMD
 layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
 layout(triangles, max_vertices = 64, max_primitives = 124) out;
@@ -20,7 +22,7 @@ struct Vertex
 #if USE_UNPACK
 	uint n_packed;
 #else
-	uint8_t nx, ny, nz, nw;  // Could be encoded in just nx, ny.
+	uint8_t nx, ny, nz, nw;     // Could be encoded in just nx, ny.
 #endif
 	float16_t tu, tv;
 };
@@ -56,9 +58,9 @@ struct Meshlet
 	uint vertices[64];
 #if !USE_PACKED_INDICES
 	uint8_t indices[124 * 3];  // Max 126 triangles. 124 for by-4-divisibility
-	//uint8_t pad_1;
-	//uint8_t pad_2;
-#else  // This will completely break the normal computation.
+							   // uint8_t pad_1;
+							   // uint8_t pad_2;
+#else                          // This will completely break the normal computation.
 	uint indices[124 * 3 / 4];  // Max 126 triangles.
 #endif
 	uint8_t vertex_count;
@@ -72,7 +74,18 @@ layout(binding = 1) readonly buffer Meshlets
 
 layout(location = 0) out vec4 color[];
 
-//layout(location = 1) perprimitiveNV out vec3 triangle_normals[];
+// layout(location = 1) perprimitiveNV out vec3 triangle_normals[];
+
+uint hash(uint a)
+{
+	a = (a + 0x7ed55d16) + (a << 12);
+	a = (a ^ 0xc761c23c) ^ (a >> 19);
+	a = (a + 0x165667b1) + (a << 5);
+	a = (a + 0xd3a2646c) ^ (a << 9);
+	a = (a + 0xfd7046c5) + (a << 3);
+	a = (a ^ 0xb55a4f09) ^ (a >> 16);
+	return a;
+}
 
 void main()
 {
@@ -82,6 +95,11 @@ void main()
 	const uint vertex_count = meshlets[mi].vertex_count;
 	const uint triangle_count = meshlets[mi].triangle_count;
 	const uint index_count = 3 * triangle_count;
+
+#if DEBUG
+	const uint meshlet_hash = hash(mi);
+	const vec3 meshlet_color = vec3(float(meshlet_hash & 255), float((meshlet_hash >> 8) & 255), float((meshlet_hash >> 16) & 255)) / 255.0;
+#endif
 
 	for (uint i = ti; i < vertex_count; i += 32)
 	{
@@ -99,11 +117,14 @@ void main()
 		gl_MeshVerticesNV[i].gl_Position = vec4(position * vec3(1, 1, 0.5) + vec3(0, 0, 0.5), 1.0);
 
 		color[i] = vec4(normal * 0.5 + vec3(0.5), 1.0);
+#if DEBUG
+		color[i] = vec4(meshlet_color, 1.0);
+		#endif
 	}
 
 	//// Doesn't seem to work with the barrier and fetching from gl_MeshVerticesNV.
 	////memoryBarrier();
-	//for (uint i = ti; i < triangle_count; i += 32)
+	// for (uint i = ti; i < triangle_count; i += 32)
 	//{
 	//	const uint vi0 = meshlets[mi].vertices[uint(meshlets[mi].indices[3 * i + 0])];
 	//	const uint vi1 = meshlets[mi].vertices[uint(meshlets[mi].indices[3 * i + 1])];
@@ -128,12 +149,12 @@ void main()
 	}
 #else
 	const uint index_chunk_count = (index_count + 3) / 4;
-	//const uint index_chunk_count = (index_count + 7) / 8;
+	// const uint index_chunk_count = (index_count + 7) / 8;
 	for (uint i = ti; i < index_chunk_count; i += 32)
 	{
 		writePackedPrimitiveIndices4x8NV(i * 4, meshlets[mi].indices[i]);
-		//writePackedPrimitiveIndices4x8NV(i * 8 + 0, meshlets[mi].indices[i * 2 + 0]);
-		//writePackedPrimitiveIndices4x8NV(i * 8 + 4, meshlets[mi].indices[i * 2 + 1]);
+		// writePackedPrimitiveIndices4x8NV(i * 8 + 0, meshlets[mi].indices[i * 2 + 0]);
+		// writePackedPrimitiveIndices4x8NV(i * 8 + 4, meshlets[mi].indices[i * 2 + 1]);
 	}
 #endif
 
