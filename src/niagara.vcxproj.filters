@@ -121,6 +121,9 @@
     <ClCompile Include="fast_obj.cpp">
       <Filter>fast_obj</Filter>
     </ClCompile>
+    <ClCompile Include="shaders.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\extern\glfw\src\win32_joystick.h">
@@ -155,6 +158,12 @@
     </ClInclude>
     <ClInclude Include="shaders\mesh.h">
       <Filter>Shaders</Filter>
+    </ClInclude>
+    <ClInclude Include="shaders.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="common.h">
+      <Filter>Source Files</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
