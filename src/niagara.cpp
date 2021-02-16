@@ -532,18 +532,23 @@ int main(int argc, char* argv[])
 	VkDescriptorSetLayout set_layout = CreateDescriptorSetLayout(device, false);
 	assert(set_layout);
 	VkPipelineLayout mesh_pipeline_layout = CreatePipelineLayout(device, set_layout);
+	VkDescriptorUpdateTemplate mesh_update_template =
+			CreateUpdateTemplate(device, VK_PIPELINE_BIND_POINT_GRAPHICS, set_layout, mesh_pipeline_layout, false);
 	VkPipeline mesh_pipeline = CreateGraphicsPipeline(
 			device, pipeline_cache, render_pass, mesh_pipeline_layout, mesh_vert, mesh_frag, false);
 	assert(mesh_pipeline);
 
-	VkDescriptorSetLayout set_layout_rtx = 0;
-	VkPipelineLayout mesh_pipeline_layout_rtx = 0;
-	VkPipeline mesh_pipeline_rtx = 0;
+	VkDescriptorSetLayout set_layout_rtx = VK_NULL_HANDLE;
+	VkPipelineLayout mesh_pipeline_layout_rtx = VK_NULL_HANDLE;
+	VkDescriptorUpdateTemplate mesh_update_template_rtx = VK_NULL_HANDLE;
+	VkPipeline mesh_pipeline_rtx = VK_NULL_HANDLE;
 	if (rtx_supported)
 	{
 		set_layout_rtx = CreateDescriptorSetLayout(device, true);
 		assert(set_layout_rtx);
 		mesh_pipeline_layout_rtx = CreatePipelineLayout(device, set_layout_rtx);
+		mesh_update_template_rtx = CreateUpdateTemplate(
+				device, VK_PIPELINE_BIND_POINT_GRAPHICS, set_layout_rtx, mesh_pipeline_layout_rtx, true);
 		mesh_pipeline_rtx = CreateGraphicsPipeline(
 				device, pipeline_cache, render_pass, mesh_pipeline_layout_rtx, meshlet_mesh, mesh_frag, true);
 		assert(mesh_pipeline_rtx);
@@ -680,37 +685,39 @@ int main(int argc, char* argv[])
 		{
 			vkCmdBindPipeline(cmd_buf, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh_pipeline_rtx);
 
-			VkDescriptorBufferInfo vb_info = {};
-			vb_info.buffer = vertex_buffer.buffer;
-			vb_info.offset = 0;
-			vb_info.range = vertex_buffer.size;
+			// VkDescriptorBufferInfo vb_info = {};
+			// vb_info.buffer = vertex_buffer.buffer;
+			// vb_info.offset = 0;
+			// vb_info.range = vertex_buffer.size;
+			//
+			// VkDescriptorBufferInfo mb_info = {};
+			// mb_info.buffer = meshlet_buffer.buffer;
+			// mb_info.offset = 0;
+			// mb_info.range = meshlet_buffer.size;
+			//
+			//// TODO wouldn't it be better to use 1 descriptor set with 2 descriptors?
+			// VkWriteDescriptorSet descriptors[2] = {};
+			// descriptors[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;  // Why different here?
+			//// I guess we skip this because we push and don't have to allocate a set from a pool.
+			//// descriptors[0].dstSet = ?;
+			// descriptors[0].dstBinding = 0;
+			// descriptors[0].descriptorCount = 1;
+			// descriptors[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			// descriptors[0].pBufferInfo = &vb_info;
+			//
+			// descriptors[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			// descriptors[1].dstBinding = 1;
+			// descriptors[1].descriptorCount = 1;
+			// descriptors[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			// descriptors[1].pBufferInfo = &mb_info;
+			//
+			// vkCmdPushDescriptorSetKHR(cmd_buf, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh_pipeline_layout_rtx, 0,
+			//		ARRAYSIZE(descriptors), descriptors);
 
-			VkDescriptorBufferInfo mb_info = {};
-			mb_info.buffer = meshlet_buffer.buffer;
-			mb_info.offset = 0;
-			mb_info.range = meshlet_buffer.size;
+			DescriptorInfo descriptors[2] = { vertex_buffer.buffer, meshlet_buffer.buffer };
+			vkCmdPushDescriptorSetWithTemplateKHR(
+					cmd_buf, mesh_update_template_rtx, mesh_pipeline_layout_rtx, 0, descriptors);
 
-			// TODO wouldn't it be better to use 1 descriptor set with 2 descriptors?
-			VkWriteDescriptorSet descriptors[2] = {};
-			descriptors[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;  // Why different here?
-			// I guess we skip this because we push and don't have to allocate a set from a pool.
-			// descriptors[0].dstSet = ?;
-			descriptors[0].dstBinding = 0;
-			descriptors[0].descriptorCount = 1;
-			descriptors[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-			descriptors[0].pBufferInfo = &vb_info;
-
-			descriptors[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-			descriptors[1].dstBinding = 1;
-			descriptors[1].descriptorCount = 1;
-			descriptors[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-			descriptors[1].pBufferInfo = &mb_info;
-
-			//VkDescriptorUpdateTemplate update_template;
-			//vkCmdPushDescriptorSetWithTemplateKHR(cmd_buf, update_template, mesh_pipeline_layout_rtx, 0, descriptors);
-
-			vkCmdPushDescriptorSetKHR(cmd_buf, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh_pipeline_layout_rtx, 0,
-					ARRAYSIZE(descriptors), descriptors);
 
 			for (size_t i = 0; i < draw_count; ++i)
 			{
@@ -721,21 +728,25 @@ int main(int argc, char* argv[])
 		{
 			vkCmdBindPipeline(cmd_buf, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh_pipeline);
 
-			VkDescriptorBufferInfo vb_info = {};
-			vb_info.buffer = vertex_buffer.buffer;
-			vb_info.offset = 0;
-			vb_info.range = vertex_buffer.size;
+			//VkDescriptorBufferInfo vb_info = {};
+			//vb_info.buffer = vertex_buffer.buffer;
+			//vb_info.offset = 0;
+			//vb_info.range = vertex_buffer.size;
+			//
+			//VkWriteDescriptorSet descriptors[1] = {};
+			//descriptors[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;  // Why different here?
+			//// I guess we skip this because we push and don't have to allocate a set from a pool.
+			//// descriptors[0].dstSet = ?;
+			//descriptors[0].dstBinding = 0;
+			//descriptors[0].descriptorCount = 1;
+			//descriptors[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			//descriptors[0].pBufferInfo = &vb_info;
+			//vkCmdPushDescriptorSetKHR(
+			//		cmd_buf, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh_pipeline_layout, 0, 1, descriptors);
 
-			VkWriteDescriptorSet descriptors[1] = {};
-			descriptors[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;  // Why different here?
-			// I guess we skip this because we push and don't have to allocate a set from a pool.
-			// descriptors[0].dstSet = ?;
-			descriptors[0].dstBinding = 0;
-			descriptors[0].descriptorCount = 1;
-			descriptors[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-			descriptors[0].pBufferInfo = &vb_info;
-			vkCmdPushDescriptorSetKHR(
-					cmd_buf, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh_pipeline_layout, 0, 1, descriptors);
+			DescriptorInfo descriptors[1] = { vertex_buffer.buffer };
+			vkCmdPushDescriptorSetWithTemplateKHR(
+					cmd_buf, mesh_update_template, mesh_pipeline_layout, 0, descriptors);
 
 			vkCmdBindIndexBuffer(cmd_buf, index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
 			for (size_t i = 0; i < draw_count; ++i)
@@ -827,12 +838,14 @@ int main(int argc, char* argv[])
 
 	vkDestroyPipeline(device, mesh_pipeline, nullptr);
 	vkDestroyPipelineLayout(device, mesh_pipeline_layout, nullptr);
+	vkDestroyDescriptorUpdateTemplate(device, mesh_update_template, nullptr);
 	vkDestroyDescriptorSetLayout(device, set_layout, nullptr);
 
 	if (rtx_supported)
 	{
 		vkDestroyPipeline(device, mesh_pipeline_rtx, nullptr);
 		vkDestroyPipelineLayout(device, mesh_pipeline_layout_rtx, nullptr);
+		vkDestroyDescriptorUpdateTemplate(device, mesh_update_template_rtx, nullptr);
 		vkDestroyDescriptorSetLayout(device, set_layout_rtx, nullptr);
 	}
 
