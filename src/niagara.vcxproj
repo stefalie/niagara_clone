@@ -131,6 +131,7 @@
     <ClInclude Include="..\extern\glfw\src\win32_platform.h" />
     <ClInclude Include="..\extern\meshoptimizer\src\meshoptimizer.h" />
     <ClInclude Include="..\extern\volk\volk.h" />
+    <ClInclude Include="shaders\mesh.h" />
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="shaders\mesh.frag.glsl">

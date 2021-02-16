@@ -153,6 +153,9 @@
     <ClInclude Include="..\extern\fast_obj\fast_obj.h">
       <Filter>fast_obj</Filter>
     </ClInclude>
+    <ClInclude Include="shaders\mesh.h">
+      <Filter>Shaders</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="shaders\mesh.frag.glsl">

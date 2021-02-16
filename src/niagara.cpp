@@ -1874,3 +1874,4 @@ void DestroySwapchain(VkDevice device, const Swapchain& swapchain)
 	}
 	vkDestroySwapchainKHR(device, swapchain.swapchain, nullptr);
 }
+

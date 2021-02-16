@@ -1,14 +1,9 @@
 #version 450
 
 #extension GL_NV_mesh_shader : require
+#extension GL_GOOGLE_include_directive : require
 
-#define USE_UNPACK 0
-#if USE_UNPACK
-#extension GL_EXT_shader_8bit_storage : require
-#endif
-
-#extension GL_EXT_shader_16bit_storage : require
-#extension GL_EXT_shader_explicit_arithmetic_types : require
+#include "mesh.h"
 
 #define DEBUG 1
 
@@ -16,56 +11,29 @@
 layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
 layout(triangles, max_vertices = 64, max_primitives = 124) out;
 
-struct Vertex
-{
-	float16_t vx, vy, vz, vw;
-#if USE_UNPACK
-	uint n_packed;
-#else
-	uint8_t nx, ny, nz, nw;     // Could be encoded in just nx, ny.
-#endif
-	float16_t tu, tv;
-};
-
 layout(binding = 0) readonly buffer Vertices
 {
 	Vertex vertices[];
 };
 
-	// N triangles
-	// 3 * N vertices (when duplicating everything)
-	// N / 2 unique vertices in an ideal world (valence 6)
-	// [N / 2, N] unique vertices in practice for high quality meshes.
-	// OLD: // [24, 42] vertices -> Let's use local_size_x == 32
+// N triangles
+// 3 * N vertices (when duplicating everything)
+// N / 2 unique vertices in an ideal world (valence 6)
+// [N / 2, N] unique vertices in practice for high quality meshes.
+// OLD: // [24, 42] vertices -> Let's use local_size_x == 32
 
-	// 126 triangles only makes sense for quite optimal meshes close to N / 2 vertices.
-	// If not, you'll always fill up the 64 vertices without even getting anywhere
-	// close to the 126 triangles. If that's the case go down to 84 triangles,
-	// that might be more realistic.
-	// Note that Arseny, so far, didn't give an explanation of why we're fixed on 64
-	// vertices. I mean it's nice as it's exactly 2 warps, and it will
-	// stay at about 1/8th of the potential 16 kB output.
-	// 16 kB allows for 256 b if using 64 vertices, we only use 32 b (position + color).
-	//
-	// Terrain is probably close to optimal -> 126 triangles
-	// General purpose -> 83 triangles
-	// Minecraft/Roblox is crazy (because you need different normals for the "same" vertex") -> 41 triangles
-
-#define USE_PACKED_INDICES 1
-
-struct Meshlet
-{
-	uint vertices[64];
-#if !USE_PACKED_INDICES
-	uint8_t indices[124 * 3];  // Max 126 triangles. 124 for by-4-divisibility
-							   // uint8_t pad_1;
-							   // uint8_t pad_2;
-#else                          // This will completely break the normal computation.
-	uint indices[124 * 3 / 4];  // Max 126 triangles.
-#endif
-	uint8_t vertex_count;
-	uint8_t triangle_count;
-};
+// 126 triangles only makes sense for quite optimal meshes close to N / 2 vertices.
+// If not, you'll always fill up the 64 vertices without even getting anywhere
+// close to the 126 triangles. If that's the case go down to 84 triangles,
+// that might be more realistic.
+// Note that Arseny, so far, didn't give an explanation of why we're fixed on 64
+// vertices. I mean it's nice as it's exactly 2 warps, and it will
+// stay at about 1/8th of the potential 16 kB output.
+// 16 kB allows for 256 b if using 64 vertices, we only use 32 b (position + color).
+//
+// Terrain is probably close to optimal -> 126 triangles
+// General purpose -> 83 triangles
+// Minecraft/Roblox is crazy (because you need different normals for the "same" vertex") -> 41 triangles
 
 layout(binding = 1) readonly buffer Meshlets
 {
@@ -98,7 +66,9 @@ void main()
 
 #if DEBUG
 	const uint meshlet_hash = hash(mi);
-	const vec3 meshlet_color = vec3(float(meshlet_hash & 255), float((meshlet_hash >> 8) & 255), float((meshlet_hash >> 16) & 255)) / 255.0;
+	const vec3 meshlet_color =
+			vec3(float(meshlet_hash & 255), float((meshlet_hash >> 8) & 255), float((meshlet_hash >> 16) & 255)) /
+			255.0;
 #endif
 
 	for (uint i = ti; i < vertex_count; i += 32)
@@ -119,7 +89,7 @@ void main()
 		color[i] = vec4(normal * 0.5 + vec3(0.5), 1.0);
 #if DEBUG
 		color[i] = vec4(meshlet_color, 1.0);
-		#endif
+#endif
 	}
 
 	//// Doesn't seem to work with the barrier and fetching from gl_MeshVerticesNV.
