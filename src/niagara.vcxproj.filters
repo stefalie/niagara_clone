@@ -176,5 +176,8 @@
     <CustomBuild Include="shaders\meshlet.mesh.glsl">
       <Filter>Shaders</Filter>
     </CustomBuild>
+    <CustomBuild Include="shaders\meshlet.task.glsl">
+      <Filter>Shaders</Filter>
+    </CustomBuild>
   </ItemGroup>
 </Project>

@@ -243,6 +243,14 @@ static void BuildMeshlets(Mesh& mesh)
 	{
 		mesh.meshlets.emplace_back(meshlet);
 	}
+
+	// TODO: We don't really need this, but this way we can guarantee that every
+	// thread in a warp accesses valid data. Once we have to push constants, we
+	// can then add the check.
+	while (mesh.meshlets.size() % 32 != 0)
+	{
+		mesh.meshlets.push_back(Meshlet());  // I assume this 0-inits the counts.
+	}
 }
 
 static float halfToFloat(uint16_t h)
@@ -623,17 +631,19 @@ int main(int argc, char* argv[])
 	Shader meshlet_task = {};
 	if (rtx_supported)
 	{
-		bool rc = LoadShader(meshlet_mesh, device, "meshlet.mesh.spv");
+		bool rc;
+		rc = LoadShader(meshlet_mesh, device, "meshlet.mesh.spv");
+		assert(rc);
+		rc = LoadShader(meshlet_task, device, "meshlet.task.spv");
 		assert(rc);
 	}
 	Shader mesh_vert = {};
 	Shader mesh_frag = {};
 	{
-		bool rc = LoadShader(mesh_vert, device, "mesh.vert.spv");
+		bool rc;
+		rc = LoadShader(mesh_vert, device, "mesh.vert.spv");
 		assert(rc);
-	}
-	{
-		bool rc = LoadShader(mesh_frag, device, "mesh.frag.spv");
+		rc = LoadShader(mesh_frag, device, "mesh.frag.spv");
 		assert(rc);
 	}
 
@@ -656,13 +666,13 @@ int main(int argc, char* argv[])
 	VkPipeline mesh_pipeline_rtx = VK_NULL_HANDLE;
 	if (rtx_supported)
 	{
-		set_layout_rtx = CreateDescriptorSetLayout(device, { &meshlet_mesh, &mesh_frag });
+		set_layout_rtx = CreateDescriptorSetLayout(device, { &meshlet_task, &meshlet_mesh, &mesh_frag });
 		assert(set_layout_rtx);
 		mesh_pipeline_layout_rtx = CreatePipelineLayout(device, set_layout_rtx);
 		mesh_update_template_rtx = CreateUpdateTemplate(device, VK_PIPELINE_BIND_POINT_GRAPHICS, set_layout_rtx,
-				mesh_pipeline_layout_rtx, { &meshlet_mesh, &mesh_frag });
-		mesh_pipeline_rtx = CreateGraphicsPipeline(
-				device, pipeline_cache, render_pass, mesh_pipeline_layout_rtx, { &meshlet_mesh, &mesh_frag });
+				mesh_pipeline_layout_rtx, { &meshlet_task, &meshlet_mesh, &mesh_frag });
+		mesh_pipeline_rtx = CreateGraphicsPipeline(device, pipeline_cache, render_pass, mesh_pipeline_layout_rtx,
+				{ &meshlet_task, &meshlet_mesh, &mesh_frag });
 		assert(mesh_pipeline_rtx);
 	}
 
@@ -834,7 +844,9 @@ int main(int argc, char* argv[])
 
 			for (size_t i = 0; i < draw_count; ++i)
 			{
-				vkCmdDrawMeshTasksNV(cmd_buf, uint32_t(mesh.meshlets.size()), 0);
+				// Without task shader:
+				// vkCmdDrawMeshTasksNV(cmd_buf, uint32_t(mesh.meshlets.size()), 0);
+				vkCmdDrawMeshTasksNV(cmd_buf, uint32_t(mesh.meshlets.size()) / 32, 0);
 			}
 		}
 		else
@@ -969,7 +981,7 @@ int main(int argc, char* argv[])
 	if (rtx_supported)
 	{
 		DestroyShader(meshlet_mesh, device);
-		// DestroyShader(meshlet_task);
+		DestroyShader(meshlet_task, device);
 	}
 
 	vkDestroyQueryPool(device, query_pool, nullptr);

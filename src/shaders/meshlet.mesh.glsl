@@ -40,6 +40,11 @@ layout(binding = 1) readonly buffer Meshlets
 	Meshlet meshlets[];
 };
 
+in taskNV task_block
+{
+	uint meshlet_offset;
+};
+
 layout(location = 0) out vec4 color[];
 
 // layout(location = 1) perprimitiveNV out vec3 triangle_normals[];
@@ -74,7 +79,7 @@ bool coneCull(vec4 cone, vec3 view)
 
 void main()
 {
-	const uint mi = gl_WorkGroupID.x;
+	const uint mi = gl_WorkGroupID.x + meshlet_offset;
 	const uint ti = gl_LocalInvocationID.x;
 
 	if (coneCull(meshlets[mi].cone, vec3(0, 0, 1)))
@@ -145,13 +150,16 @@ void main()
 	}
 #else
 	const uint index_chunk_count = (index_count + 3) / 4;
-	// const uint index_chunk_count = (index_count + 7) / 8;
 	for (uint i = ti; i < index_chunk_count; i += 32)
 	{
 		writePackedPrimitiveIndices4x8NV(i * 4, meshlets[mi].indices[i]);
-		// writePackedPrimitiveIndices4x8NV(i * 8 + 0, meshlets[mi].indices[i * 2 + 0]);
-		// writePackedPrimitiveIndices4x8NV(i * 8 + 4, meshlets[mi].indices[i * 2 + 1]);
 	}
+	// const uint index_chunk_count = (index_count + 7) / 8;
+	// for (uint i = ti; i < index_chunk_count; i += 32)
+	//{
+	//	writePackedPrimitiveIndices4x8NV(i * 8 + 0, meshlets[mi].indices[i * 2 + 0]);
+	//	writePackedPrimitiveIndices4x8NV(i * 8 + 4, meshlets[mi].indices[i * 2 + 1]);
+	//}
 #endif
 
 	if (ti == 0)
