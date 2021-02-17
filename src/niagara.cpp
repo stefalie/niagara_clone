@@ -334,10 +334,10 @@ static void BuildMeshletCones(Mesh& mesh)
 			min_dp = std::min(min_dp, dp);
 		}
 
-		const float cos_cone_half_angle = min_dp;
-		const float cos_extended_cone_half_angle = -sqrtf(1.0f - cos_cone_half_angle * cos_cone_half_angle);
+		// See: https://github.com/zeux/meshoptimizer/blob/03a8d8770c3536e5f1162fe94572426779f8f51b/src/clusterizer.cpp#L817
+		const float cos_alpha_inv = sqrtf(1.0f - min_dp * min_dp);
 		// If the dot product is already < 0, you can't go minus another 90 deg.
-		const float cone_w = (min_dp <= 0.0f) ? -1.0f : cos_extended_cone_half_angle;
+		const float cone_w = (min_dp <= 0.0f) ? 1.0f : cos_alpha_inv;
 
 		meshlet.cone[0] = avg_normal[0];
 		meshlet.cone[1] = avg_normal[1];

@@ -57,9 +57,19 @@ uint hash(uint a)
 
 bool coneCull(vec4 cone, vec3 view)
 {
+	// NOTE: Normally view points towards the camera.
+	// Then if
+	// dot(view, cone) < cos(cone_half + 90) -> cull
+	// dot(view, cone) < (-sin(cone_half))
+	// dot(view, cone) < -sqrt(1 - cos(cone_half) * cos(cone_half))
+	// dot(view, cone) < -sqrt(1 - dp * dp)
+	// dot(-view, cone) > sqrt(1 - dp * dp)
+	// dot(view_ray_dir, cone) > sqrt(1 - dp * dp)
+	// dot(view_ray_dir, cone) > cone.w
+	//
 	// Run with the following to see it "from the other side".
-	// return dot(cone.xyz, -view) < cone.w;
-	return dot(cone.xyz, view) < cone.w;
+	// return dot(cone.xyz, view) > cone.w;
+	return dot(cone.xyz, -view) > cone.w;
 }
 
 void main()
