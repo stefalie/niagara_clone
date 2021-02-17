@@ -55,10 +55,26 @@ uint hash(uint a)
 	return a;
 }
 
+bool coneCull(vec4 cone, vec3 view)
+{
+	// Run with the following to see it "from the other side".
+	// return dot(cone.xyz, -view) < cone.w;
+	return dot(cone.xyz, view) < cone.w;
+}
+
 void main()
 {
 	const uint mi = gl_WorkGroupID.x;
 	const uint ti = gl_LocalInvocationID.x;
+
+	if (coneCull(meshlets[mi].cone, vec3(0, 0, 1)))
+	{
+		if (ti == 0)
+		{
+			gl_PrimitiveCountNV = 0;
+		}
+		return;
+	}
 
 	const uint vertex_count = meshlets[mi].vertex_count;
 	const uint triangle_count = meshlets[mi].triangle_count;

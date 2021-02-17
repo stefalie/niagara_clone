@@ -46,8 +46,10 @@ struct Vertex
 	uint16_t tu, tv;
 };
 
-struct Meshlet
+struct alignas(16) Meshlet
 {
+	float cone[4];
+
 	// TODO indirection for now.
 	uint32_t vertices[64];
 
@@ -74,7 +76,7 @@ struct Mesh
 bool rtx_supported = false;
 bool rtx_enabled = false;
 
-bool LoadMesh(Mesh& result, const char* path)
+static bool LoadMesh(Mesh& result, const char* path)
 {
 	fastObjMesh* obj = fast_obj_read(path);
 	if (!obj)
@@ -184,7 +186,7 @@ bool LoadMesh(Mesh& result, const char* path)
 	return true;
 }
 
-void BuildMeshlets(Mesh& mesh)
+static void BuildMeshlets(Mesh& mesh)
 {
 	Meshlet meshlet = {};
 	std::vector<uint8_t> meshlet_vertices(mesh.vertices.size(), 0xff);
@@ -240,6 +242,107 @@ void BuildMeshlets(Mesh& mesh)
 	if (meshlet.triangle_count > 0)
 	{
 		mesh.meshlets.emplace_back(meshlet);
+	}
+}
+
+static float halfToFloat(uint16_t h)
+{
+	const uint16_t sign = h >> 15;
+	const uint16_t exp = (h >> 10) & 0x1f;
+	const uint16_t mantissa = h & 0x03ff;
+
+	assert(exp != 31);  // TODO: We don't handle infinity.
+
+	if (exp == 0)
+	{
+		assert(mantissa == 0);  // TODO: We don't handle de-normalized values.
+		return 0.0f;
+	}
+	else
+	{
+		return (sign ? -1.0f : 1.0f) * ldexpf(float(mantissa + 1024) / 1024.f, exp - 15);
+	}
+}
+
+static void BuildMeshletCones(Mesh& mesh)
+{
+	for (Meshlet& meshlet : mesh.meshlets)
+	{
+		float normals[124][3] = {};
+
+		for (unsigned int i = 0; i < meshlet.triangle_count; ++i)
+		{
+			const uint32_t vi0 = meshlet.vertices[meshlet.indices[i * 3 + 0]];
+			const uint32_t vi1 = meshlet.vertices[meshlet.indices[i * 3 + 1]];
+			const uint32_t vi2 = meshlet.vertices[meshlet.indices[i * 3 + 2]];
+
+			const Vertex& v0 = mesh.vertices[vi0];
+			const Vertex& v1 = mesh.vertices[vi1];
+			const Vertex& v2 = mesh.vertices[vi2];
+
+			// Convert half back to float. It makes sense to not do this earlier because
+			// we want to do it with the same rounding/precision as the GPU will do it.
+
+			const float p0[3] = { halfToFloat(v0.vx), halfToFloat(v0.vy), halfToFloat(v0.vz) };
+			const float p1[3] = { halfToFloat(v1.vx), halfToFloat(v1.vy), halfToFloat(v1.vz) };
+			const float p2[3] = { halfToFloat(v2.vx), halfToFloat(v2.vy), halfToFloat(v2.vz) };
+
+			const float p10[3] = { p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2] };
+			const float p20[3] = { p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2] };
+
+			const float normal_x = p10[1] * p20[2] - p10[2] * p20[1];
+			const float normal_y = p10[2] * p20[0] - p10[0] * p20[2];
+			const float normal_z = p10[0] * p20[1] - p10[1] * p20[0];
+
+			const float area = sqrtf(normal_x * normal_x + normal_y * normal_y + normal_z * normal_z);
+			const float inv_area = (area == 0.0f) ? 0.0f : 1.0f / area;
+
+			normals[i][0] = normal_x * inv_area;
+			normals[i][1] = normal_y * inv_area;
+			normals[i][2] = normal_z * inv_area;
+		}
+
+		float avg_normal[3] = {};
+		for (unsigned int i = 0; i < meshlet.triangle_count; ++i)
+		{
+			avg_normal[0] += normals[i][0];
+			avg_normal[1] += normals[i][1];
+			avg_normal[2] += normals[i][2];
+		}
+
+		const float avg_length =
+				sqrtf(avg_normal[0] * avg_normal[0] + avg_normal[1] * avg_normal[1] + avg_normal[2] * avg_normal[2]);
+		if (avg_length == 0.0f)
+		{
+			avg_normal[0] = 1.0f;
+			avg_normal[1] = 0.0f;
+			avg_normal[2] = 0.0f;
+		}
+		else
+		{
+			const float inv_avg_length = 1.0f / avg_length;
+			avg_normal[0] *= inv_avg_length;
+			avg_normal[1] *= inv_avg_length;
+			avg_normal[2] *= inv_avg_length;
+		}
+
+		float min_dp = 1.0f;
+		for (unsigned int i = 0; i < meshlet.triangle_count; ++i)
+		{
+			const float dp =
+					avg_normal[0] * normals[i][0] + avg_normal[1] * normals[i][1] + avg_normal[2] * normals[i][2];
+			min_dp = std::min(min_dp, dp);
+		}
+
+		const float cos_cone_half_angle = min_dp;
+		const float cos_extended_cone_half_angle = -sqrtf(1.0f - cos_cone_half_angle * cos_cone_half_angle);
+		// If the dot product is already < 0, you can't go minus another 90 deg.
+		const float cone_w = (min_dp <= 0.0f) ? -1.0f : cos_extended_cone_half_angle;
+
+		meshlet.cone[0] = avg_normal[0];
+		meshlet.cone[1] = avg_normal[1];
+		meshlet.cone[2] = avg_normal[2];
+		meshlet.cone[3] = cone_w;
 	}
 }
 
@@ -583,6 +686,7 @@ int main(int argc, char* argv[])
 	if (rtx_supported)
 	{
 		BuildMeshlets(mesh);
+		BuildMeshletCones(mesh);
 	}
 
 	Buffer scratch_buffer = {};

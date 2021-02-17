@@ -33,6 +33,7 @@ struct Vertex
 
 struct Meshlet
 {
+	vec4 cone;  // No vec4, because that woul need 16-byte alignment
 	uint vertices[64];
 #if !USE_PACKED_INDICES
 	uint8_t indices[124 * 3];  // Max 126 triangles. 124 for by-4-divisibility
