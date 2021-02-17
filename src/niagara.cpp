@@ -515,27 +515,35 @@ int main(int argc, char* argv[])
 	VkQueryPool query_pool = CreateQueryPool(device, 128);
 	assert(query_pool);
 
-	VkShaderModule meshlet_mesh = 0;
-	VkShaderModule meshlet_task = 0;
+	Shader meshlet_mesh = {};
+	Shader meshlet_task = {};
 	if (rtx_supported)
 	{
-		meshlet_mesh = LoadShader(device, "meshlet.mesh.spv");
-		assert(meshlet_mesh);
+		bool rc = LoadShader(meshlet_mesh, device, "meshlet.mesh.spv");
+		assert(rc);
 	}
-	VkShaderModule mesh_vert = LoadShader(device, "mesh.vert.spv");
-	VkShaderModule mesh_frag = LoadShader(device, "mesh.frag.spv");
+	Shader mesh_vert = {};
+	Shader mesh_frag = {};
+	{
+		bool rc = LoadShader(mesh_vert, device, "mesh.vert.spv");
+		assert(rc);
+	}
+	{
+		bool rc = LoadShader(mesh_frag, device, "mesh.frag.spv");
+		assert(rc);
+	}
 
 	// TODO: Critical for perf.
 	VkPipelineCache pipeline_cache = VK_NULL_HANDLE;
 
 
-	VkDescriptorSetLayout set_layout = CreateDescriptorSetLayout(device, false);
+	VkDescriptorSetLayout set_layout = CreateDescriptorSetLayout(device, mesh_vert, mesh_frag);
 	assert(set_layout);
 	VkPipelineLayout mesh_pipeline_layout = CreatePipelineLayout(device, set_layout);
-	VkDescriptorUpdateTemplate mesh_update_template =
-			CreateUpdateTemplate(device, VK_PIPELINE_BIND_POINT_GRAPHICS, set_layout, mesh_pipeline_layout, false);
-	VkPipeline mesh_pipeline = CreateGraphicsPipeline(
-			device, pipeline_cache, render_pass, mesh_pipeline_layout, mesh_vert, mesh_frag, false);
+	VkDescriptorUpdateTemplate mesh_update_template = CreateUpdateTemplate(
+			device, VK_PIPELINE_BIND_POINT_GRAPHICS, set_layout, mesh_pipeline_layout, mesh_vert, mesh_frag);
+	VkPipeline mesh_pipeline =
+			CreateGraphicsPipeline(device, pipeline_cache, render_pass, mesh_pipeline_layout, mesh_vert, mesh_frag);
 	assert(mesh_pipeline);
 
 	VkDescriptorSetLayout set_layout_rtx = VK_NULL_HANDLE;
@@ -544,13 +552,13 @@ int main(int argc, char* argv[])
 	VkPipeline mesh_pipeline_rtx = VK_NULL_HANDLE;
 	if (rtx_supported)
 	{
-		set_layout_rtx = CreateDescriptorSetLayout(device, true);
+		set_layout_rtx = CreateDescriptorSetLayout(device, meshlet_mesh, mesh_frag);
 		assert(set_layout_rtx);
 		mesh_pipeline_layout_rtx = CreatePipelineLayout(device, set_layout_rtx);
-		mesh_update_template_rtx = CreateUpdateTemplate(
-				device, VK_PIPELINE_BIND_POINT_GRAPHICS, set_layout_rtx, mesh_pipeline_layout_rtx, true);
+		mesh_update_template_rtx = CreateUpdateTemplate(device, VK_PIPELINE_BIND_POINT_GRAPHICS, set_layout_rtx,
+				mesh_pipeline_layout_rtx, meshlet_mesh, mesh_frag);
 		mesh_pipeline_rtx = CreateGraphicsPipeline(
-				device, pipeline_cache, render_pass, mesh_pipeline_layout_rtx, meshlet_mesh, mesh_frag, true);
+				device, pipeline_cache, render_pass, mesh_pipeline_layout_rtx, meshlet_mesh, mesh_frag);
 		assert(mesh_pipeline_rtx);
 	}
 
@@ -714,7 +722,7 @@ int main(int argc, char* argv[])
 			// vkCmdPushDescriptorSetKHR(cmd_buf, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh_pipeline_layout_rtx, 0,
 			//		ARRAYSIZE(descriptors), descriptors);
 
-			DescriptorInfo descriptors[2] = { vertex_buffer.buffer, meshlet_buffer.buffer };
+			DescriptorInfo descriptors[] = { vertex_buffer.buffer, meshlet_buffer.buffer };
 			vkCmdPushDescriptorSetWithTemplateKHR(
 					cmd_buf, mesh_update_template_rtx, mesh_pipeline_layout_rtx, 0, descriptors);
 
@@ -728,25 +736,24 @@ int main(int argc, char* argv[])
 		{
 			vkCmdBindPipeline(cmd_buf, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh_pipeline);
 
-			//VkDescriptorBufferInfo vb_info = {};
-			//vb_info.buffer = vertex_buffer.buffer;
-			//vb_info.offset = 0;
-			//vb_info.range = vertex_buffer.size;
+			// VkDescriptorBufferInfo vb_info = {};
+			// vb_info.buffer = vertex_buffer.buffer;
+			// vb_info.offset = 0;
+			// vb_info.range = vertex_buffer.size;
 			//
-			//VkWriteDescriptorSet descriptors[1] = {};
-			//descriptors[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;  // Why different here?
+			// VkWriteDescriptorSet descriptors[1] = {};
+			// descriptors[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;  // Why different here?
 			//// I guess we skip this because we push and don't have to allocate a set from a pool.
 			//// descriptors[0].dstSet = ?;
-			//descriptors[0].dstBinding = 0;
-			//descriptors[0].descriptorCount = 1;
-			//descriptors[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-			//descriptors[0].pBufferInfo = &vb_info;
-			//vkCmdPushDescriptorSetKHR(
+			// descriptors[0].dstBinding = 0;
+			// descriptors[0].descriptorCount = 1;
+			// descriptors[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			// descriptors[0].pBufferInfo = &vb_info;
+			// vkCmdPushDescriptorSetKHR(
 			//		cmd_buf, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh_pipeline_layout, 0, 1, descriptors);
 
-			DescriptorInfo descriptors[1] = { vertex_buffer.buffer };
-			vkCmdPushDescriptorSetWithTemplateKHR(
-					cmd_buf, mesh_update_template, mesh_pipeline_layout, 0, descriptors);
+			DescriptorInfo descriptors[] = { vertex_buffer.buffer };
+			vkCmdPushDescriptorSetWithTemplateKHR(cmd_buf, mesh_update_template, mesh_pipeline_layout, 0, descriptors);
 
 			vkCmdBindIndexBuffer(cmd_buf, index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
 			for (size_t i = 0; i < draw_count; ++i)
@@ -851,13 +858,13 @@ int main(int argc, char* argv[])
 
 	// vkDestroyPipelineCache(device, pipeline_cache, nullptr);
 
-	vkDestroyShaderModule(device, mesh_frag, nullptr);
-	vkDestroyShaderModule(device, mesh_vert, nullptr);
+	DestroyShader(mesh_frag, device);
+	DestroyShader(mesh_vert, device);
 
 	if (rtx_supported)
 	{
-		vkDestroyShaderModule(device, meshlet_mesh, nullptr);
-		// vkDestroyShaderModule(device, meshlet_task, nullptr);
+		DestroyShader(meshlet_mesh, device);
+		// DestroyShader(meshlet_task);
 	}
 
 	vkDestroyQueryPool(device, query_pool, nullptr);

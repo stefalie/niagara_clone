@@ -1,16 +1,25 @@
 #pragma once
 
-VkShaderModule LoadShader(VkDevice device, const char* path);
+struct Shader
+{
+	VkShaderModule module;
+	VkShaderStageFlagBits stage;
+	uint32_t storage_buffer_mask;
+};
 
-VkDescriptorSetLayout CreateDescriptorSetLayout(VkDevice device, bool rtx_enabled);
+bool LoadShader(Shader& shader, VkDevice device, const char* path);
+void DestroyShader(Shader& shader, VkDevice device);
+
+VkDescriptorSetLayout CreateDescriptorSetLayout(VkDevice device, const Shader& vert_or_mesh, const Shader& frag);
 
 VkPipelineLayout CreatePipelineLayout(VkDevice device, VkDescriptorSetLayout set_layout);
 
-VkDescriptorUpdateTemplate CreateUpdateTemplate(VkDevice device, VkPipelineBindPoint bind_point,
-		VkDescriptorSetLayout set_layout, VkPipelineLayout pipeline_layout, bool rtx_enabled);
+VkDescriptorUpdateTemplate
+CreateUpdateTemplate(VkDevice device, VkPipelineBindPoint bind_point, VkDescriptorSetLayout set_layout,
+		VkPipelineLayout pipeline_layout, const Shader& vert_or_mesh, const Shader& frag);
 
 VkPipeline CreateGraphicsPipeline(VkDevice device, VkPipelineCache pipeline_cache, VkRenderPass render_pass,
-		VkPipelineLayout layout, VkShaderModule vert_or_mesh, VkShaderModule frag, bool rtx_enabled);
+		VkPipelineLayout layout, const Shader& vert_or_mesh, const Shader& frag);
 
 struct DescriptorInfo
 {
@@ -20,6 +29,8 @@ struct DescriptorInfo
 		VkDescriptorBufferInfo buffer;
 	};
 
+	DescriptorInfo() {}
+
 	DescriptorInfo(VkSampler sampler, VkImageView image_view, VkImageLayout image_layout)
 	{
 		image.sampler = sampler;
@@ -27,17 +38,17 @@ struct DescriptorInfo
 		image.imageLayout = image_layout;
 	}
 
-	//DescriptorInfo(VkBuffer buf, VkDeviceSize offset = 0, VkDeviceSize range = VK_WHOLE_SIZE)
-	//{
-	//	buffer.buffer = buf;
-	//	buffer.offset = offset;
-	//	buffer.range = range;
-	//}
-
-	DescriptorInfo(VkBuffer buf)
+	DescriptorInfo(VkBuffer buf, VkDeviceSize offset = 0, VkDeviceSize range = VK_WHOLE_SIZE)
 	{
 		buffer.buffer = buf;
-		buffer.offset = 0;
-		buffer.range = VK_WHOLE_SIZE;
+		buffer.offset = offset;
+		buffer.range = range;
 	}
+
+	// DescriptorInfo(VkBuffer buf)
+	//{
+	//	buffer.buffer = buf;
+	//	buffer.offset = 0;
+	//	buffer.range = VK_WHOLE_SIZE;
+	//}
 };

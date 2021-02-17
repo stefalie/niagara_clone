@@ -1,16 +1,123 @@
 #include "common.h"
+
 #include "shaders.h"
 
 #include <stdio.h>
 
 #include <vector>
 
-VkShaderModule LoadShader(VkDevice device, const char* path)
+#include <spirv-headers/spirv.h>
+
+// https://www.khronos.org/registry/spir-v/specs/1.0/SPIRV.pdf
+
+static VkShaderStageFlagBits GetShaderStage(SpvExecutionModel model)
+{
+	switch (model)
+	{
+	case SpvExecutionModelVertex:
+		return VK_SHADER_STAGE_VERTEX_BIT;
+	case SpvExecutionModelFragment:
+		return VK_SHADER_STAGE_FRAGMENT_BIT;
+	case SpvExecutionModelTaskNV:
+		return VK_SHADER_STAGE_TASK_BIT_NV;
+	case SpvExecutionModelMeshNV:
+		return VK_SHADER_STAGE_MESH_BIT_NV;
+	default:
+		assert(!"Unsupported shader execution model!");
+		return VkShaderStageFlagBits(0);
+	}
+}
+
+struct Id
+{
+	enum Kind
+	{
+		Unknown,
+		Variable
+	};
+	Kind kind = Unknown;
+	uint32_t type;
+	uint32_t storage_class;
+	uint32_t binding;
+	uint32_t set;
+};
+
+static void ParseShader(Shader& shader, const uint32_t* code, uint32_t code_size)
+{
+	assert(code[0] == SpvMagicNumber);
+	const uint32_t id_bound = code[3];
+
+	std::vector<Id> ids(id_bound);
+
+	const uint32_t* inst = code + 5;
+	while (inst != code + code_size)
+	{
+		const uint16_t opcode = uint16_t(inst[0]);
+		const uint16_t word_count = uint16_t((inst[0]) >> 16);
+
+		switch (opcode)
+		{
+		case SpvOpEntryPoint: {
+			assert(word_count >= 2);
+			shader.stage = GetShaderStage(SpvExecutionModel(inst[1]));
+			break;
+		}
+		case SpvOpDecorate: {
+			assert(word_count >= 3);
+			const uint32_t id = inst[1];
+			assert(id < id_bound);
+
+			switch (inst[2])
+			{
+			case SpvDecorationDescriptorSet:
+				ids[id].set = inst[3];
+				break;
+			case SpvDecorationBinding:
+				ids[id].binding = inst[3];
+				break;
+			}
+			break;
+		}
+		case SpvOpVariable: {
+			assert(word_count >= 4);
+			const uint32_t id = inst[2];
+			assert(id < id_bound);
+
+			assert(ids[id].kind == Id::Unknown);
+			ids[id].kind = Id::Variable;
+			ids[id].type = inst[1];
+			ids[id].storage_class = inst[3];
+			break;
+		}
+		}
+
+		assert(inst + word_count <= code + code_size);
+		inst += word_count;
+	}
+
+	for (auto& id : ids)
+	{
+		if (id.kind == Id::Variable && id.storage_class == SpvStorageClassUniform)
+		{
+			// TODO: Assume we only have storage buffers.
+			assert(id.set == 0);
+			assert(id.binding < 32);
+			assert((shader.storage_buffer_mask & (1 << id.binding)) == 0);
+
+			shader.storage_buffer_mask |= 1 << id.binding;
+		}
+	}
+}
+
+bool LoadShader(Shader& shader, VkDevice device, const char* path)
 {
 	assert(device);
 
 	FILE* file = fopen(path, "rb");
-	assert(file);
+	if (!file)
+	{
+		return false;
+	}
 	fseek(file, 0, SEEK_END);
 	const long length = ftell(file);
 	assert(length >= 0);
@@ -25,39 +132,51 @@ VkShaderModule LoadShader(VkDevice device, const char* path)
 	fclose(file);
 
 	VkShaderModuleCreateInfo shader_create_info = { VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
-	shader_create_info.codeSize = length;
+	shader_create_info.codeSize = length;  // Number of bytes, not words.
 	shader_create_info.pCode = (const uint32_t*)buffer;
 
 	VkShaderModule shader_module = VK_NULL_HANDLE;
+	// TODO: More error handling.
 	VK_CHECK(vkCreateShaderModule(device, &shader_create_info, nullptr, &shader_module));
 
+	ParseShader(shader, (const uint32_t*)buffer, length / 4);
+
 	free(buffer);
-	return shader_module;
+	shader.module = shader_module;
+	// shader.stage = ??;
+
+	return true;
 }
 
-VkDescriptorSetLayout CreateDescriptorSetLayout(VkDevice device, bool rtx_enabled)
+void DestroyShader(Shader& shader, VkDevice device)
 {
-	// TODO extract from SPIR-V
+	vkDestroyShaderModule(device, shader.module, nullptr);
+}
+
+VkDescriptorSetLayout CreateDescriptorSetLayout(VkDevice device, const Shader& vert_or_mesh, const Shader& frag)
+{
 	std::vector<VkDescriptorSetLayoutBinding> set_layout_bindings;
-	if (rtx_enabled)
+
+	const uint32_t storagebuffer_mask = vert_or_mesh.storage_buffer_mask | frag.storage_buffer_mask;
+	for (uint32_t i = 0; i < 32; ++i)
 	{
-		set_layout_bindings.resize(2);
-		set_layout_bindings[0].binding = 0;
-		set_layout_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-		set_layout_bindings[0].descriptorCount = 1;
-		set_layout_bindings[0].stageFlags = VK_SHADER_STAGE_MESH_BIT_NV;
-		set_layout_bindings[1].binding = 1;
-		set_layout_bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-		set_layout_bindings[1].descriptorCount = 1;
-		set_layout_bindings[1].stageFlags = VK_SHADER_STAGE_MESH_BIT_NV;
-	}
-	else
-	{
-		set_layout_bindings.resize(1);
-		set_layout_bindings[0].binding = 0;
-		set_layout_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-		set_layout_bindings[0].descriptorCount = 1;
-		set_layout_bindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+		if (storagebuffer_mask & (1 << i))
+		{
+			VkDescriptorSetLayoutBinding binding = {};
+			binding.binding = i;
+			binding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			binding.descriptorCount = 1;
+			if (vert_or_mesh.storage_buffer_mask & (1 << i))
+			{
+				binding.stageFlags |= vert_or_mesh.stage;
+			}
+			if (frag.storage_buffer_mask & (1 << i))
+			{
+				binding.stageFlags |= frag.stage;
+			}
+
+			set_layout_bindings.push_back(binding);
+		}
 	}
 
 	VkDescriptorSetLayoutCreateInfo set_layout_create_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
@@ -87,38 +206,28 @@ VkPipelineLayout CreatePipelineLayout(VkDevice device, VkDescriptorSetLayout set
 	return layout;
 }
 
-VkDescriptorUpdateTemplate CreateUpdateTemplate(VkDevice device, VkPipelineBindPoint bind_point,
-		VkDescriptorSetLayout set_layout, VkPipelineLayout pipeline_layout, bool rtx_enabled)
+VkDescriptorUpdateTemplate
+CreateUpdateTemplate(VkDevice device, VkPipelineBindPoint bind_point, VkDescriptorSetLayout set_layout,
+		VkPipelineLayout pipeline_layout, const Shader& vert_or_mesh, const Shader& frag)
 {
 	assert(device);
 
 	std::vector<VkDescriptorUpdateTemplateEntry> entries;
-	if (rtx_enabled)
+
+	const uint32_t storagebuffer_mask = vert_or_mesh.storage_buffer_mask | frag.storage_buffer_mask;
+	for (uint32_t i = 0; i < 32; ++i)
 	{
-		// TODO wouldn't it be better to use 1 descriptor set with 2 descriptors?
-		entries.resize(2);
-		entries[0].dstBinding = 0;
-		entries[0].dstArrayElement = 0;
-		entries[0].descriptorCount = 1;
-		entries[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-		entries[0].offset = sizeof(DescriptorInfo) * 0;
-		entries[0].stride = sizeof(DescriptorInfo);
-		entries[1].dstBinding = 1;
-		entries[1].dstArrayElement = 0;
-		entries[1].descriptorCount = 1;
-		entries[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-		entries[1].offset = sizeof(DescriptorInfo) * 1;
-		entries[1].stride = sizeof(DescriptorInfo);
-	}
-	else
-	{
-		entries.resize(1);
-		entries[0].dstBinding = 0;
-		entries[0].dstArrayElement = 0;
-		entries[0].descriptorCount = 1;
-		entries[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-		entries[0].offset = sizeof(DescriptorInfo) * 0;
-		entries[0].stride = sizeof(DescriptorInfo);
+		if (storagebuffer_mask & (1 << i))
+		{
+			VkDescriptorUpdateTemplateEntry entry = {};
+			entry.dstBinding = i;
+			entry.dstArrayElement = 0;
+			entry.descriptorCount = 1;
+			entry.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			entry.offset = sizeof(DescriptorInfo) * i;  // Hmm? TODO: I'd rather have multiplied this by entries.size().
+			entry.stride = sizeof(DescriptorInfo);
+			entries.push_back(entry);
+		}
 	}
 
 	VkDescriptorUpdateTemplateCreateInfo template_create_info = {
@@ -139,20 +248,22 @@ VkDescriptorUpdateTemplate CreateUpdateTemplate(VkDevice device, VkPipelineBindP
 }
 
 VkPipeline CreateGraphicsPipeline(VkDevice device, VkPipelineCache pipeline_cache, VkRenderPass render_pass,
-		VkPipelineLayout layout, VkShaderModule vert_or_mesh, VkShaderModule frag, bool rtx_enabled)
+		VkPipelineLayout layout, const Shader& vert_or_mesh, const Shader& frag)
 {
 	assert(device);
-	assert(vert_or_mesh);
-	assert(frag);
+	assert(vert_or_mesh.module);
+	assert(vert_or_mesh.stage == VK_SHADER_STAGE_VERTEX_BIT || vert_or_mesh.stage == VK_SHADER_STAGE_MESH_BIT_NV);
+	assert(frag.module);
+	assert(frag.stage == VK_SHADER_STAGE_FRAGMENT_BIT);
 
 	VkPipelineShaderStageCreateInfo stages[2] = {};
 	stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-	stages[0].stage = rtx_enabled ? VK_SHADER_STAGE_MESH_BIT_NV : VK_SHADER_STAGE_VERTEX_BIT;
-	stages[0].module = vert_or_mesh;
+	stages[0].stage = vert_or_mesh.stage;
+	stages[0].module = vert_or_mesh.module;
 	stages[0].pName = "main";
 	stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-	stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-	stages[1].module = frag;
+	stages[1].stage = frag.stage;
+	stages[1].module = frag.module;
 	stages[1].pName = "main";
 
 	VkPipelineVertexInputStateCreateInfo vertex_input = { VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
