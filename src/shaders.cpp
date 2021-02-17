@@ -153,11 +153,16 @@ void DestroyShader(Shader& shader, VkDevice device)
 	vkDestroyShaderModule(device, shader.module, nullptr);
 }
 
-VkDescriptorSetLayout CreateDescriptorSetLayout(VkDevice device, const Shader& vert_or_mesh, const Shader& frag)
+VkDescriptorSetLayout CreateDescriptorSetLayout(VkDevice device, Shaders shaders)
 {
 	std::vector<VkDescriptorSetLayoutBinding> set_layout_bindings;
 
-	const uint32_t storagebuffer_mask = vert_or_mesh.storage_buffer_mask | frag.storage_buffer_mask;
+	uint32_t storagebuffer_mask = 0;
+	for (const Shader* shader : shaders)
+	{
+		storagebuffer_mask |= shader->storage_buffer_mask;
+	}
+
 	for (uint32_t i = 0; i < 32; ++i)
 	{
 		if (storagebuffer_mask & (1 << i))
@@ -166,13 +171,12 @@ VkDescriptorSetLayout CreateDescriptorSetLayout(VkDevice device, const Shader& v
 			binding.binding = i;
 			binding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 			binding.descriptorCount = 1;
-			if (vert_or_mesh.storage_buffer_mask & (1 << i))
+			for (const Shader* shader : shaders)
 			{
-				binding.stageFlags |= vert_or_mesh.stage;
-			}
-			if (frag.storage_buffer_mask & (1 << i))
-			{
-				binding.stageFlags |= frag.stage;
+				if (shader->storage_buffer_mask & (1 << i))
+				{
+					binding.stageFlags |= shader->stage;
+				}
 			}
 
 			set_layout_bindings.push_back(binding);
@@ -206,15 +210,19 @@ VkPipelineLayout CreatePipelineLayout(VkDevice device, VkDescriptorSetLayout set
 	return layout;
 }
 
-VkDescriptorUpdateTemplate
-CreateUpdateTemplate(VkDevice device, VkPipelineBindPoint bind_point, VkDescriptorSetLayout set_layout,
-		VkPipelineLayout pipeline_layout, const Shader& vert_or_mesh, const Shader& frag)
+VkDescriptorUpdateTemplate CreateUpdateTemplate(VkDevice device, VkPipelineBindPoint bind_point,
+		VkDescriptorSetLayout set_layout, VkPipelineLayout pipeline_layout, Shaders shaders)
 {
 	assert(device);
 
 	std::vector<VkDescriptorUpdateTemplateEntry> entries;
 
-	const uint32_t storagebuffer_mask = vert_or_mesh.storage_buffer_mask | frag.storage_buffer_mask;
+	uint32_t storagebuffer_mask = 0;
+	for (const Shader* shader : shaders)
+	{
+		storagebuffer_mask |= shader->storage_buffer_mask;
+	}
+
 	for (uint32_t i = 0; i < 32; ++i)
 	{
 		if (storagebuffer_mask & (1 << i))
@@ -238,7 +246,7 @@ CreateUpdateTemplate(VkDevice device, VkPipelineBindPoint bind_point, VkDescript
 	template_create_info.pDescriptorUpdateEntries = entries.data();
 	template_create_info.templateType = VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_PUSH_DESCRIPTORS_KHR;
 	// Note needed with push descriptor.
-	//template_create_info.descriptorSetLayout = set_layout;
+	// template_create_info.descriptorSetLayout = set_layout;
 	template_create_info.pipelineBindPoint = bind_point;
 	template_create_info.pipelineLayout = pipeline_layout;
 
@@ -249,23 +257,20 @@ CreateUpdateTemplate(VkDevice device, VkPipelineBindPoint bind_point, VkDescript
 }
 
 VkPipeline CreateGraphicsPipeline(VkDevice device, VkPipelineCache pipeline_cache, VkRenderPass render_pass,
-		VkPipelineLayout layout, const Shader& vert_or_mesh, const Shader& frag)
+		VkPipelineLayout layout, Shaders shaders)
 {
 	assert(device);
-	assert(vert_or_mesh.module);
-	assert(vert_or_mesh.stage == VK_SHADER_STAGE_VERTEX_BIT || vert_or_mesh.stage == VK_SHADER_STAGE_MESH_BIT_NV);
-	assert(frag.module);
-	assert(frag.stage == VK_SHADER_STAGE_FRAGMENT_BIT);
 
-	VkPipelineShaderStageCreateInfo stages[2] = {};
-	stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-	stages[0].stage = vert_or_mesh.stage;
-	stages[0].module = vert_or_mesh.module;
-	stages[0].pName = "main";
-	stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-	stages[1].stage = frag.stage;
-	stages[1].module = frag.module;
-	stages[1].pName = "main";
+	std::vector<VkPipelineShaderStageCreateInfo> stages;
+	for (const Shader* shader : shaders)
+	{
+		assert(shader->module);
+		VkPipelineShaderStageCreateInfo stage = { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO };
+		stage.stage = shader->stage;
+		stage.module = shader->module;
+		stage.pName = "main";
+		stages.push_back(stage);
+	}
 
 	VkPipelineVertexInputStateCreateInfo vertex_input = { VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
 
@@ -288,7 +293,7 @@ VkPipeline CreateGraphicsPipeline(VkDevice device, VkPipelineCache pipeline_cach
 	// TODO: Count on 0 being ok for all this.
 	raster_state.cullMode = VK_CULL_MODE_BACK_BIT;
 	raster_state.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-	//raster_state.frontFace = VK_FRONT_FACE_CLOCKWISE;
+	// raster_state.frontFace = VK_FRONT_FACE_CLOCKWISE;
 	// raster_state.depthBiasEnable;
 	// raster_state.depthBiasConstantFactor;
 	// raster_state.depthBiasClamp;
@@ -306,7 +311,7 @@ VkPipeline CreateGraphicsPipeline(VkDevice device, VkPipelineCache pipeline_cach
 	VkPipelineDepthStencilStateCreateInfo depth_stencil = {
 		VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO
 	};
-	//depth_stencil.depthTestEnable = VK_TRUE;
+	// depth_stencil.depthTestEnable = VK_TRUE;
 	// depth_stencil.depthWriteEnable;
 	// depth_stencil.depthCompareOp;
 	// depth_stencil.depthBoundsTestEnable;
@@ -337,8 +342,8 @@ VkPipeline CreateGraphicsPipeline(VkDevice device, VkPipelineCache pipeline_cach
 	dynamic.pDynamicStates = dynamic_states;
 
 	VkGraphicsPipelineCreateInfo pipeline_create_info = { VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
-	pipeline_create_info.stageCount = ARRAYSIZE(stages);
-	pipeline_create_info.pStages = stages;
+	pipeline_create_info.stageCount = uint32_t(stages.size());
+	pipeline_create_info.pStages = stages.data();
 	pipeline_create_info.pVertexInputState = &vertex_input;
 	pipeline_create_info.pInputAssemblyState = &input_assembly;
 

@@ -334,7 +334,8 @@ static void BuildMeshletCones(Mesh& mesh)
 			min_dp = std::min(min_dp, dp);
 		}
 
-		// See: https://github.com/zeux/meshoptimizer/blob/03a8d8770c3536e5f1162fe94572426779f8f51b/src/clusterizer.cpp#L817
+		// See:
+		// https://github.com/zeux/meshoptimizer/blob/03a8d8770c3536e5f1162fe94572426779f8f51b/src/clusterizer.cpp#L817
 		const float cos_alpha_inv = sqrtf(1.0f - min_dp * min_dp);
 		// If the dot product is already < 0, you can't go minus another 90 deg.
 		const float cone_w = (min_dp <= 0.0f) ? 1.0f : cos_alpha_inv;
@@ -640,13 +641,13 @@ int main(int argc, char* argv[])
 	VkPipelineCache pipeline_cache = VK_NULL_HANDLE;
 
 
-	VkDescriptorSetLayout set_layout = CreateDescriptorSetLayout(device, mesh_vert, mesh_frag);
+	VkDescriptorSetLayout set_layout = CreateDescriptorSetLayout(device, { &mesh_vert, &mesh_frag });
 	assert(set_layout);
 	VkPipelineLayout mesh_pipeline_layout = CreatePipelineLayout(device, set_layout);
 	VkDescriptorUpdateTemplate mesh_update_template = CreateUpdateTemplate(
-			device, VK_PIPELINE_BIND_POINT_GRAPHICS, set_layout, mesh_pipeline_layout, mesh_vert, mesh_frag);
-	VkPipeline mesh_pipeline =
-			CreateGraphicsPipeline(device, pipeline_cache, render_pass, mesh_pipeline_layout, mesh_vert, mesh_frag);
+			device, VK_PIPELINE_BIND_POINT_GRAPHICS, set_layout, mesh_pipeline_layout, { &mesh_vert, &mesh_frag });
+	VkPipeline mesh_pipeline = CreateGraphicsPipeline(
+			device, pipeline_cache, render_pass, mesh_pipeline_layout, { &mesh_vert, &mesh_frag });
 	assert(mesh_pipeline);
 
 	VkDescriptorSetLayout set_layout_rtx = VK_NULL_HANDLE;
@@ -655,13 +656,13 @@ int main(int argc, char* argv[])
 	VkPipeline mesh_pipeline_rtx = VK_NULL_HANDLE;
 	if (rtx_supported)
 	{
-		set_layout_rtx = CreateDescriptorSetLayout(device, meshlet_mesh, mesh_frag);
+		set_layout_rtx = CreateDescriptorSetLayout(device, { &meshlet_mesh, &mesh_frag });
 		assert(set_layout_rtx);
 		mesh_pipeline_layout_rtx = CreatePipelineLayout(device, set_layout_rtx);
 		mesh_update_template_rtx = CreateUpdateTemplate(device, VK_PIPELINE_BIND_POINT_GRAPHICS, set_layout_rtx,
-				mesh_pipeline_layout_rtx, meshlet_mesh, mesh_frag);
+				mesh_pipeline_layout_rtx, { &meshlet_mesh, &mesh_frag });
 		mesh_pipeline_rtx = CreateGraphicsPipeline(
-				device, pipeline_cache, render_pass, mesh_pipeline_layout_rtx, meshlet_mesh, mesh_frag);
+				device, pipeline_cache, render_pass, mesh_pipeline_layout_rtx, { &meshlet_mesh, &mesh_frag });
 		assert(mesh_pipeline_rtx);
 	}
 

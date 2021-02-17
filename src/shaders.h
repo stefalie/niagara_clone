@@ -1,5 +1,7 @@
 #pragma once
 
+#include <initializer_list>
+
 struct Shader
 {
 	VkShaderModule module;
@@ -10,16 +12,18 @@ struct Shader
 bool LoadShader(Shader& shader, VkDevice device, const char* path);
 void DestroyShader(Shader& shader, VkDevice device);
 
-VkDescriptorSetLayout CreateDescriptorSetLayout(VkDevice device, const Shader& vert_or_mesh, const Shader& frag);
+using Shaders = std::initializer_list<const Shader*>;
+// TODO: Should Shaders be passed as value or reference?
+
+VkDescriptorSetLayout CreateDescriptorSetLayout(VkDevice device, Shaders shaders);
 
 VkPipelineLayout CreatePipelineLayout(VkDevice device, VkDescriptorSetLayout set_layout);
 
-VkDescriptorUpdateTemplate
-CreateUpdateTemplate(VkDevice device, VkPipelineBindPoint bind_point, VkDescriptorSetLayout set_layout,
-		VkPipelineLayout pipeline_layout, const Shader& vert_or_mesh, const Shader& frag);
+VkDescriptorUpdateTemplate CreateUpdateTemplate(VkDevice device, VkPipelineBindPoint bind_point,
+		VkDescriptorSetLayout set_layout, VkPipelineLayout pipeline_layout, Shaders shaders);
 
 VkPipeline CreateGraphicsPipeline(VkDevice device, VkPipelineCache pipeline_cache, VkRenderPass render_pass,
-		VkPipelineLayout layout, const Shader& vert_or_mesh, const Shader& frag);
+		VkPipelineLayout layout, Shaders shaders);
 
 struct DescriptorInfo
 {
