@@ -2,11 +2,11 @@
 
 #extension GL_NV_mesh_shader : require
 #extension GL_GOOGLE_include_directive : require
-//#extension GL_KHR_shader_subgroup_arithmetic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
 
 #include "mesh.h"
 
-#define CULL 0
+#define CULL 1
 
 layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
 

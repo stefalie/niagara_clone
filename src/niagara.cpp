@@ -1337,15 +1337,18 @@ VkPhysicalDevice PickPhysicalDevice(VkInstance instance)
 	// Pick 1st discrete GPU.
 	for (uint32_t i = 0; i < physical_device_count; ++i)
 	{
-		VkPhysicalDeviceProperties props;
-		vkGetPhysicalDeviceProperties(physical_devices[i], &props);
+		// VkPhysicalDeviceProperties props;
+		// vkGetPhysicalDeviceProperties(physical_devices[i], &props);
+		VkPhysicalDeviceProperties2 props2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2 };
+		VkPhysicalDeviceSubgroupProperties subgroup_props = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES };
+		props2.pNext = &subgroup_props;
+		vkGetPhysicalDeviceProperties2(physical_devices[i], &props2);
+
+		VkPhysicalDeviceProperties& props = props2.properties;
 
 		printf("GPU %u: %s.\n", i, props.deviceName);
 
 		{  // Check for 8-bit int support.
-			// VkPhysicalDeviceProperties2 props2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2 };
-			// vkGetPhysicalDeviceProperties2(physical_devices[i], &props2);
-
 			VkPhysicalDeviceFeatures2 features2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
 			VkPhysicalDevice8BitStorageFeatures features_8bit = {
 				VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_8BIT_STORAGE_FEATURES
@@ -1394,6 +1397,17 @@ VkPhysicalDevice PickPhysicalDevice(VkInstance instance)
 		}
 
 		if (props.apiVersion < VK_API_VERSION_1_2)
+		{
+			continue;
+		}
+
+		// TODO: Unclear if I check for enough/too much subgroup stuff.
+		if (!(subgroup_props.supportedStages & VK_SHADER_STAGE_TASK_BIT_NV))
+		{
+			continue;
+		}
+		if (!(subgroup_props.supportedOperations & VK_SUBGROUP_FEATURE_ARITHMETIC_BIT) ||
+				!(subgroup_props.supportedOperations & VK_SUBGROUP_FEATURE_BALLOT_BIT))
 		{
 			continue;
 		}
