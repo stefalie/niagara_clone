@@ -2,7 +2,12 @@
 
 #extension GL_NV_mesh_shader : require
 #extension GL_GOOGLE_include_directive : require
+#define BALLOT 0
+#if BALLOT
+#extension GL_KHR_shader_subgroup_ballot : require
+#else
 #extension GL_KHR_shader_subgroup_arithmetic : require
+#endif
 
 #include "mesh.h"
 
@@ -48,6 +53,20 @@ void main()
 	const uint mi = gi * 32 + ti;
 
 #if CULL
+#if BALLOT
+	const bool accept = !coneCull(meshlets[mi].cone, vec3(0, 0, 1));
+	const uvec4 ballot = subgroupBallot(accept);
+	const uint index = subgroupBallotExclusiveBitCount(ballot);
+
+	if (accept)
+	{
+		meshlet_indices[index] = mi;
+	}
+	if (subgroupElect())
+	{
+		gl_TaskCountNV = subgroupBallotBitCount(ballot);
+	}
+#else
 	const uint accept = coneCull(meshlets[mi].cone, vec3(0, 0, 1)) ? 0 : 1;
 	const uint index = subgroupExclusiveAdd(accept);
 
@@ -55,11 +74,11 @@ void main()
 	{
 		meshlet_indices[index] = mi;
 	}
-
 	if (ti == 31)
 	{
 		gl_TaskCountNV = index + accept;
 	}
+#endif
 #else
 	meshlet_indices[ti] = mi;
 	if (ti == 0)
