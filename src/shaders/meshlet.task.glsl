@@ -53,6 +53,7 @@ void main()
 	const uint mi = gi * 32 + ti;
 
 #if CULL
+	// TODO: Assumes subgroup size 32.
 #if BALLOT
 	const bool accept = !coneCull(meshlets[mi].cone, vec3(0, 0, 1));
 	const uvec4 ballot = subgroupBallot(accept);

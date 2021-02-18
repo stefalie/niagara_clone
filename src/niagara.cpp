@@ -38,8 +38,8 @@ VkBufferMemoryBarrier BufferBarrier(VkBuffer buffer, VkAccessFlags src_access_ma
 struct Vertex
 {
 	// TODO: Do this switch optionally, via flag.
-	// float vx, vy, vz;
-	uint16_t vx, vy, vz, vw;
+	float vx, vy, vz;
+	//uint16_t vx, vy, vz, vw;
 	// float nx, ny, nz;
 	uint8_t nx, ny, nz, nw;
 	// float tu, tv;
@@ -116,12 +116,12 @@ static bool LoadMesh(Mesh& result, const char* path)
 			float ny = obj->normals[idx.n * 3 + 1];
 			float nz = obj->normals[idx.n * 3 + 2];
 
-			// v.vx = obj->positions[idx.p * 3 + 0];
-			// v.vy = obj->positions[idx.p * 3 + 1];
-			// v.vz = obj->positions[idx.p * 3 + 2];
-			v.vx = meshopt_quantizeHalf(obj->positions[idx.p * 3 + 0]);
-			v.vy = meshopt_quantizeHalf(obj->positions[idx.p * 3 + 1]);
-			v.vz = meshopt_quantizeHalf(obj->positions[idx.p * 3 + 2]);
+			v.vx = obj->positions[idx.p * 3 + 0];
+			v.vy = obj->positions[idx.p * 3 + 1];
+			v.vz = obj->positions[idx.p * 3 + 2];
+			//v.vx = meshopt_quantizeHalf(obj->positions[idx.p * 3 + 0]);
+			//v.vy = meshopt_quantizeHalf(obj->positions[idx.p * 3 + 1]);
+			//v.vz = meshopt_quantizeHalf(obj->positions[idx.p * 3 + 2]);
 			// TODO: Fix rounding.
 			v.nx = uint8_t(nx * 127.0f + 127.0f);
 			v.ny = uint8_t(ny * 127.0f + 127.0f);
@@ -291,9 +291,12 @@ static void BuildMeshletCones(Mesh& mesh)
 			// Convert half back to float. It makes sense to not do this earlier because
 			// we want to do it with the same rounding/precision as the GPU will do it.
 
-			const float p0[3] = { halfToFloat(v0.vx), halfToFloat(v0.vy), halfToFloat(v0.vz) };
-			const float p1[3] = { halfToFloat(v1.vx), halfToFloat(v1.vy), halfToFloat(v1.vz) };
-			const float p2[3] = { halfToFloat(v2.vx), halfToFloat(v2.vy), halfToFloat(v2.vz) };
+			//const float p0[3] = { halfToFloat(v0.vx), halfToFloat(v0.vy), halfToFloat(v0.vz) };
+			//const float p1[3] = { halfToFloat(v1.vx), halfToFloat(v1.vy), halfToFloat(v1.vz) };
+			//const float p2[3] = { halfToFloat(v2.vx), halfToFloat(v2.vy), halfToFloat(v2.vz) };
+			const float p0[3] = { v0.vx, v0.vy, v0.vz };
+			const float p1[3] = { v1.vx, v1.vy, v1.vz };
+			const float p2[3] = { v2.vx, v2.vy, v2.vz };
 
 			const float p10[3] = { p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2] };
 			const float p20[3] = { p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2] };
