@@ -5,6 +5,8 @@
 
 #include "mesh.h"
 
+#define CULL 1
+
 layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
 
 layout(binding = 1) readonly buffer Meshlets
@@ -41,6 +43,9 @@ void main()
 {
 	const uint gi = gl_WorkGroupID.x;
 	const uint ti = gl_LocalInvocationID.x;
+	const uint mi = gi * 32 + ti;
+
+#if CULL
 	if (ti == 0)
 	{
 		meshlet_count = 0;
@@ -48,8 +53,6 @@ void main()
 	// TODO: Necessary? Arseny thinks it's a no-op here because group size == warp size.
 	memoryBarrierShared();
 
-	const uint mi = gi * 32 + ti;
-	// meshlet_indices[ti] = mi;
 
 	if (!coneCull(meshlets[mi].cone, vec3(0, 0, 1)))
 	{
@@ -61,8 +64,14 @@ void main()
 	memoryBarrierShared();
 	if (ti == 0)
 	{
-		// meshlet_offset = mi * 32;
-		// gl_TaskCountNV = 32;
 		gl_TaskCountNV = meshlet_count;
 	}
+#else
+	meshlet_indices[ti] = mi;
+	if (ti == 0)
+	{
+		// meshlet_offset = mi * 32;
+		gl_TaskCountNV = 32;
+	}
+#endif
 }
