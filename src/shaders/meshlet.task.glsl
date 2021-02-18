@@ -14,17 +14,55 @@ layout(binding = 1) readonly buffer Meshlets
 
 out taskNV task_block
 {
-	uint meshlet_offset;
+	// uint meshlet_offset;
+	uint meshlet_indices[32];
 };
+
+bool coneCull(vec4 cone, vec3 view)
+{
+	// NOTE: Normally view points towards the camera.
+	// Then if
+	// dot(view, cone) < cos(cone_half + 90) -> cull
+	// dot(view, cone) < (-sin(cone_half))
+	// dot(view, cone) < -sqrt(1 - cos(cone_half) * cos(cone_half))
+	// dot(view, cone) < -sqrt(1 - dp * dp)
+	// dot(-view, cone) > sqrt(1 - dp * dp)
+	// dot(view_ray_dir, cone) > sqrt(1 - dp * dp)
+	// dot(view_ray_dir, cone) > cone.w
+	//
+	// Run with the following to see it "from the other side".
+	// return dot(cone.xyz, view) > cone.w;
+	return dot(cone.xyz, -view) > cone.w;
+}
+
+shared uint meshlet_count;
 
 void main()
 {
-	const uint mi = gl_WorkGroupID.x;
+	const uint gi = gl_WorkGroupID.x;
 	const uint ti = gl_LocalInvocationID.x;
-
 	if (ti == 0)
 	{
-		meshlet_offset = mi * 32;
-		gl_TaskCountNV = 32;
+		meshlet_count = 0;
+	}
+	// TODO: Necessary? Arseny thinks it's a no-op here because group size == warp size.
+	memoryBarrierShared();
+
+	const uint mi = gi * 32 + ti;
+	// meshlet_indices[ti] = mi;
+
+	if (!coneCull(meshlets[mi].cone, vec3(0, 0, 1)))
+	{
+		const uint index = atomicAdd(meshlet_count, 1);
+		meshlet_indices[index] = mi;
+	}
+
+	// TODO: Necessary? Arseny thinks it's a no-op here because group size == warp size.
+	memoryBarrierShared();
+	if (ti == 0)
+	{
+		// meshlet_offset = mi * 32;
+		// gl_TaskCountNV = 32;
+		gl_TaskCountNV = meshlet_count;
 	}
 }

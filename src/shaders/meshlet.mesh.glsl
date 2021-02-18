@@ -42,7 +42,8 @@ layout(binding = 1) readonly buffer Meshlets
 
 in taskNV task_block
 {
-	uint meshlet_offset;
+	// uint meshlet_offset;
+	uint meshlet_indices[32];
 };
 
 layout(location = 0) out vec4 color[];
@@ -60,36 +61,11 @@ uint hash(uint a)
 	return a;
 }
 
-bool coneCull(vec4 cone, vec3 view)
-{
-	// NOTE: Normally view points towards the camera.
-	// Then if
-	// dot(view, cone) < cos(cone_half + 90) -> cull
-	// dot(view, cone) < (-sin(cone_half))
-	// dot(view, cone) < -sqrt(1 - cos(cone_half) * cos(cone_half))
-	// dot(view, cone) < -sqrt(1 - dp * dp)
-	// dot(-view, cone) > sqrt(1 - dp * dp)
-	// dot(view_ray_dir, cone) > sqrt(1 - dp * dp)
-	// dot(view_ray_dir, cone) > cone.w
-	//
-	// Run with the following to see it "from the other side".
-	// return dot(cone.xyz, view) > cone.w;
-	return dot(cone.xyz, -view) > cone.w;
-}
-
 void main()
 {
-	const uint mi = gl_WorkGroupID.x + meshlet_offset;
+	// const uint mi = gl_WorkGroupID.x + meshlet_offset;
+	const uint mi = meshlet_indices[gl_WorkGroupID.x];
 	const uint ti = gl_LocalInvocationID.x;
-
-	if (coneCull(meshlets[mi].cone, vec3(0, 0, 1)))
-	{
-		if (ti == 0)
-		{
-			gl_PrimitiveCountNV = 0;
-		}
-		return;
-	}
 
 	const uint vertex_count = meshlets[mi].vertex_count;
 	const uint triangle_count = meshlets[mi].triangle_count;
