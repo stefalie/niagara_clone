@@ -194,13 +194,13 @@ static void BuildMeshlets(Mesh& mesh)
 	const size_t kMaxTriangles = 124;
 
 	std::vector<meshopt_Meshlet> meshlets(meshopt_buildMeshletsBound(mesh.indices.size(), kMaxVertices, kMaxTriangles));
-	meshopt_buildMeshlets(meshlets.data(), mesh.indices.data(), mesh.indices.size(), mesh.vertices.size(), kMaxVertices,
-			kMaxTriangles);
+	meshlets.resize(meshopt_buildMeshlets(meshlets.data(), mesh.indices.data(), mesh.indices.size(),
+			mesh.vertices.size(), kMaxVertices, kMaxTriangles));
 
 	// TODO: We don't really need this, but this way we can guarantee that every
 	// thread in a warp accesses valid data. Once we have to push constants, we
 	// can then add the check.
-	while (mesh.meshlets.size() % 32 != 0)
+	while (meshlets.size() % 32 != 0)
 	{
 		meshlets.push_back(meshopt_Meshlet());  // I assume this 0-inits the counts.
 	}
@@ -529,8 +529,8 @@ int main(int argc, char* argv[])
 	VkPipelineLayout mesh_pipeline_layout = CreatePipelineLayout(device, set_layout);
 	VkDescriptorUpdateTemplate mesh_update_template = CreateUpdateTemplate(
 			device, VK_PIPELINE_BIND_POINT_GRAPHICS, set_layout, mesh_pipeline_layout, mesh_shaders);
-	VkPipeline mesh_pipeline = CreateGraphicsPipeline(
-			device, pipeline_cache, render_pass, mesh_pipeline_layout, mesh_shaders);
+	VkPipeline mesh_pipeline =
+			CreateGraphicsPipeline(device, pipeline_cache, render_pass, mesh_pipeline_layout, mesh_shaders);
 	assert(mesh_pipeline);
 
 	VkDescriptorSetLayout set_layout_rtx = VK_NULL_HANDLE;
@@ -674,7 +674,7 @@ int main(int argc, char* argv[])
 		// We won't use descriptor set binding, we'll use an extension exposed by Intel and NVidia only.
 		// They are like push constants, but for descriptor sets.
 
-		size_t draw_count = 10;
+		size_t draw_count = 1;
 
 		if (rtx_enabled)
 		{
