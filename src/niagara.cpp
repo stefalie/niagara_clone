@@ -39,7 +39,7 @@ struct Vertex
 {
 	// TODO: Do this switch optionally, via flag.
 	float vx, vy, vz;
-	//uint16_t vx, vy, vz, vw;
+	// uint16_t vx, vy, vz, vw;
 	// float nx, ny, nz;
 	uint8_t nx, ny, nz, nw;
 	// float tu, tv;
@@ -119,9 +119,9 @@ static bool LoadMesh(Mesh& result, const char* path)
 			v.vx = obj->positions[idx.p * 3 + 0];
 			v.vy = obj->positions[idx.p * 3 + 1];
 			v.vz = obj->positions[idx.p * 3 + 2];
-			//v.vx = meshopt_quantizeHalf(obj->positions[idx.p * 3 + 0]);
-			//v.vy = meshopt_quantizeHalf(obj->positions[idx.p * 3 + 1]);
-			//v.vz = meshopt_quantizeHalf(obj->positions[idx.p * 3 + 2]);
+			// v.vx = meshopt_quantizeHalf(obj->positions[idx.p * 3 + 0]);
+			// v.vy = meshopt_quantizeHalf(obj->positions[idx.p * 3 + 1]);
+			// v.vz = meshopt_quantizeHalf(obj->positions[idx.p * 3 + 2]);
 			// TODO: Fix rounding.
 			v.nx = uint8_t(nx * 127.0f + 127.0f);
 			v.ny = uint8_t(ny * 127.0f + 127.0f);
@@ -188,173 +188,39 @@ static bool LoadMesh(Mesh& result, const char* path)
 
 static void BuildMeshlets(Mesh& mesh)
 {
-	Meshlet meshlet = {};
-	std::vector<uint8_t> meshlet_vertices(mesh.vertices.size(), 0xff);
+	const size_t kMaxVertices = 64;
+	const size_t kMaxTriangles = 124;
 
-	for (size_t i = 0; i < mesh.indices.size(); i += 3)
-	{
-		const uint32_t a = mesh.indices[i + 0];
-		const uint32_t b = mesh.indices[i + 1];
-		const uint32_t c = mesh.indices[i + 2];
-
-		uint8_t& av = meshlet_vertices[a];
-		uint8_t& bv = meshlet_vertices[b];
-		uint8_t& cv = meshlet_vertices[c];
-
-		// New meshlet needed?
-		if (((av == 0xFF) + (bv == 0xFF) + (cv == 0xFF) + meshlet.vertex_count > 64) || (meshlet.triangle_count >= 124))
-		{
-			mesh.meshlets.emplace_back(meshlet);
-
-			for (size_t j = 0; j < meshlet.vertex_count; ++j)
-			{
-				meshlet_vertices[meshlet.vertices[j]] = 0xFF;
-			}
-			// Slower version of clearing
-			// memset(meshlet_vertices.data(), 0xFF, meshlet_vertices.size());
-
-			meshlet = {};
-		}
-
-		if (av == 0xFF)
-		{
-			av = meshlet.vertex_count;
-			meshlet.vertices[meshlet.vertex_count++] = a;
-		}
-		if (bv == 0xFF)
-		{
-			bv = meshlet.vertex_count;
-			meshlet.vertices[meshlet.vertex_count++] = b;
-		}
-		if (cv == 0xFF)
-		{
-			cv = meshlet.vertex_count;
-			meshlet.vertices[meshlet.vertex_count++] = c;
-		}
-
-		meshlet.indices[meshlet.triangle_count * 3 + 0] = av;
-		meshlet.indices[meshlet.triangle_count * 3 + 1] = bv;
-		meshlet.indices[meshlet.triangle_count * 3 + 2] = cv;
-		meshlet.triangle_count++;
-	}
-
-	// Flush last one.
-	if (meshlet.triangle_count > 0)
-	{
-		mesh.meshlets.emplace_back(meshlet);
-	}
+	std::vector<meshopt_Meshlet> meshlets(meshopt_buildMeshletsBound(mesh.indices.size(), kMaxVertices, kMaxTriangles));
+	meshopt_buildMeshlets(meshlets.data(), mesh.indices.data(), mesh.indices.size(), mesh.vertices.size(), kMaxVertices,
+			kMaxTriangles);
 
 	// TODO: We don't really need this, but this way we can guarantee that every
 	// thread in a warp accesses valid data. Once we have to push constants, we
 	// can then add the check.
 	while (mesh.meshlets.size() % 32 != 0)
 	{
-		mesh.meshlets.push_back(Meshlet());  // I assume this 0-inits the counts.
+		meshlets.push_back(meshopt_Meshlet());  // I assume this 0-inits the counts.
 	}
-}
 
-static float halfToFloat(uint16_t h)
-{
-	const uint16_t sign = h >> 15;
-	const uint16_t exp = (h >> 10) & 0x1f;
-	const uint16_t mantissa = h & 0x03ff;
-
-	assert(exp != 31);  // TODO: We don't handle infinity.
-
-	if (exp == 0)
+	mesh.meshlets.resize(meshlets.size());
+	for (size_t i = 0; i < meshlets.size(); ++i)
 	{
-		assert(mantissa == 0);  // TODO: We don't handle de-normalized values.
-		return 0.0f;
-	}
-	else
-	{
-		return (sign ? -1.0f : 1.0f) * ldexpf(float(mantissa + 1024) / 1024.f, exp - 15);
-	}
-}
+		const meshopt_Meshlet& meshlet = meshlets[i];
+		Meshlet m = {};
+		memcpy(m.vertices, meshlet.vertices, sizeof(m.vertices));
+		memcpy(m.indices, meshlet.indices, sizeof(m.indices));
+		m.vertex_count = meshlet.vertex_count;
+		m.triangle_count = meshlet.triangle_count;
 
-static void BuildMeshletCones(Mesh& mesh)
-{
-	for (Meshlet& meshlet : mesh.meshlets)
-	{
-		float normals[124][3] = {};
+		meshopt_Bounds bounds =
+				meshopt_computeMeshletBounds(&meshlet, &mesh.vertices[0].vx, mesh.vertices.size(), sizeof(Vertex));
+		m.cone[0] = bounds.cone_axis[0];
+		m.cone[1] = bounds.cone_axis[1];
+		m.cone[2] = bounds.cone_axis[2];
+		m.cone[3] = bounds.cone_cutoff;
 
-		for (unsigned int i = 0; i < meshlet.triangle_count; ++i)
-		{
-			const uint32_t vi0 = meshlet.vertices[meshlet.indices[i * 3 + 0]];
-			const uint32_t vi1 = meshlet.vertices[meshlet.indices[i * 3 + 1]];
-			const uint32_t vi2 = meshlet.vertices[meshlet.indices[i * 3 + 2]];
-
-			const Vertex& v0 = mesh.vertices[vi0];
-			const Vertex& v1 = mesh.vertices[vi1];
-			const Vertex& v2 = mesh.vertices[vi2];
-
-			// Convert half back to float. It makes sense to not do this earlier because
-			// we want to do it with the same rounding/precision as the GPU will do it.
-
-			//const float p0[3] = { halfToFloat(v0.vx), halfToFloat(v0.vy), halfToFloat(v0.vz) };
-			//const float p1[3] = { halfToFloat(v1.vx), halfToFloat(v1.vy), halfToFloat(v1.vz) };
-			//const float p2[3] = { halfToFloat(v2.vx), halfToFloat(v2.vy), halfToFloat(v2.vz) };
-			const float p0[3] = { v0.vx, v0.vy, v0.vz };
-			const float p1[3] = { v1.vx, v1.vy, v1.vz };
-			const float p2[3] = { v2.vx, v2.vy, v2.vz };
-
-			const float p10[3] = { p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2] };
-			const float p20[3] = { p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2] };
-
-			const float normal_x = p10[1] * p20[2] - p10[2] * p20[1];
-			const float normal_y = p10[2] * p20[0] - p10[0] * p20[2];
-			const float normal_z = p10[0] * p20[1] - p10[1] * p20[0];
-
-			const float area = sqrtf(normal_x * normal_x + normal_y * normal_y + normal_z * normal_z);
-			const float inv_area = (area == 0.0f) ? 0.0f : 1.0f / area;
-
-			normals[i][0] = normal_x * inv_area;
-			normals[i][1] = normal_y * inv_area;
-			normals[i][2] = normal_z * inv_area;
-		}
-
-		float avg_normal[3] = {};
-		for (unsigned int i = 0; i < meshlet.triangle_count; ++i)
-		{
-			avg_normal[0] += normals[i][0];
-			avg_normal[1] += normals[i][1];
-			avg_normal[2] += normals[i][2];
-		}
-
-		const float avg_length =
-				sqrtf(avg_normal[0] * avg_normal[0] + avg_normal[1] * avg_normal[1] + avg_normal[2] * avg_normal[2]);
-		if (avg_length == 0.0f)
-		{
-			avg_normal[0] = 1.0f;
-			avg_normal[1] = 0.0f;
-			avg_normal[2] = 0.0f;
-		}
-		else
-		{
-			const float inv_avg_length = 1.0f / avg_length;
-			avg_normal[0] *= inv_avg_length;
-			avg_normal[1] *= inv_avg_length;
-			avg_normal[2] *= inv_avg_length;
-		}
-
-		float min_dp = 1.0f;
-		for (unsigned int i = 0; i < meshlet.triangle_count; ++i)
-		{
-			const float dp =
-					avg_normal[0] * normals[i][0] + avg_normal[1] * normals[i][1] + avg_normal[2] * normals[i][2];
-			min_dp = std::min(min_dp, dp);
-		}
-
-		// See:
-		// https://github.com/zeux/meshoptimizer/blob/03a8d8770c3536e5f1162fe94572426779f8f51b/src/clusterizer.cpp#L817
-		const float cos_alpha_inv = sqrtf(1.0f - min_dp * min_dp);
-		// If the dot product is already < 0, you can't go minus another 90 deg.
-		const float cone_w = (min_dp <= 0.0f) ? 1.0f : cos_alpha_inv;
-
-		meshlet.cone[0] = avg_normal[0];
-		meshlet.cone[1] = avg_normal[1];
-		meshlet.cone[2] = avg_normal[2];
-		meshlet.cone[3] = cone_w;
+		mesh.meshlets[i] = m;
 	}
 }
 
@@ -700,7 +566,6 @@ int main(int argc, char* argv[])
 	if (rtx_supported)
 	{
 		BuildMeshlets(mesh);
-		BuildMeshletCones(mesh);
 	}
 
 	Buffer scratch_buffer = {};
