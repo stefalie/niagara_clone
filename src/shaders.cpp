@@ -35,7 +35,7 @@ struct Id
 		Unknown,
 		Variable
 	};
-	Kind kind = Unknown;
+	Kind kind_id = Unknown;
 	uint32_t type;
 	uint32_t storage_class;
 	uint32_t binding;
@@ -83,8 +83,8 @@ static void ParseShader(Shader& shader, const uint32_t* code, uint32_t code_size
 			const uint32_t id = inst[2];
 			assert(id < id_bound);
 
-			assert(ids[id].kind == Id::Unknown);
-			ids[id].kind = Id::Variable;
+			assert(ids[id].kind_id == Id::Unknown);
+			ids[id].kind_id = Id::Variable;
 			ids[id].type = inst[1];
 			ids[id].storage_class = inst[3];
 			break;
@@ -97,7 +97,7 @@ static void ParseShader(Shader& shader, const uint32_t* code, uint32_t code_size
 
 	for (auto& id : ids)
 	{
-		if (id.kind == Id::Variable && id.storage_class == SpvStorageClassUniform)
+		if (id.kind_id == Id::Variable && (id.storage_class == SpvStorageClassUniform || id.storage_class == SpvStorageClassUniformConstant || id.storage_class == SpvStorageClassStorageBuffer))
 		{
 			// TODO: Assume we only have storage buffers.
 			assert(id.set == 0);

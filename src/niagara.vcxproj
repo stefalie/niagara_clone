@@ -67,7 +67,7 @@
       <AdditionalDependencies>%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <CustomBuild>
-      <Command>$(VULKAN_SDK)\Bin\glslangValidator.exe %(FullPath) -V --target-env vulkan1.0 -o $(OutputPath)%(Filename).spv</Command>
+      <Command>$(VULKAN_SDK)\Bin\glslangValidator.exe %(FullPath) -V --target-env vulkan1.2 -o $(OutputPath)%(Filename).spv</Command>
       <Outputs>$(OutputPath)%(Filename).spv</Outputs>
       <AdditionalInputs>shaders\*.h</AdditionalInputs>
       <BuildInParallel>true</BuildInParallel>
@@ -91,7 +91,7 @@
       <AdditionalDependencies>%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <CustomBuild>
-      <Command>$(VULKAN_SDK)\Bin\glslangValidator.exe %(FullPath) -V --target-env vulkan1.0 -o $(OutputPath)%(Filename).spv</Command>
+      <Command>$(VULKAN_SDK)\Bin\glslangValidator.exe %(FullPath) -V --target-env vulkan1.2 -o $(OutputPath)%(Filename).spv</Command>
       <Outputs>$(OutputPath)%(Filename).spv</Outputs>
       <AdditionalInputs>shaders\*.h</AdditionalInputs>
       <BuildInParallel>true</BuildInParallel>

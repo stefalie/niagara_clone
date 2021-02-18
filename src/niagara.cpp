@@ -542,8 +542,8 @@ int main(int argc, char* argv[])
 	volkLoadInstance(instance);
 
 #ifdef _DEBUG
-	// VkDebugReportCallbackEXT debug_callback = RegisterDebugCallback(instance);
-	// assert(debug_callback);
+	VkDebugReportCallbackEXT debug_callback = RegisterDebugCallback(instance);
+	assert(debug_callback);
 	VkDebugUtilsMessengerEXT debug_messenger = RegisterDebugUtilsMessenger(instance);
 	assert(debug_messenger);
 #endif
@@ -1000,7 +1000,7 @@ int main(int argc, char* argv[])
 	vkDestroyDevice(device, nullptr);
 
 #ifdef _DEBUG
-	// vkDestroyDebugReportCallbackEXT(instance, debug_callback, nullptr);
+	vkDestroyDebugReportCallbackEXT(instance, debug_callback, nullptr);
 	vkDestroyDebugUtilsMessengerEXT(instance, debug_messenger, nullptr);
 #endif
 	vkDestroyInstance(instance, nullptr);
