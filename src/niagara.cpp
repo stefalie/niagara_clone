@@ -1060,6 +1060,10 @@ static VkBool32 DebugReportCallback(VkDebugReportFlagsEXT flags, VkDebugReportOb
 	//{
 	//	return VK_FALSE;
 	//}
+	if (strstr(pMessage, "SPIR-V module not valid: Member index 0 is missing a location assignment"))
+	{
+		return VK_FALSE;
+	}
 
 	if ((flags & VK_DEBUG_REPORT_DEBUG_BIT_EXT) || (flags & VK_DEBUG_REPORT_INFORMATION_BIT_EXT))
 	{
@@ -1154,6 +1158,10 @@ static VkBool32 DebugUtilsCallbackLunarG(VkDebugUtilsMessageSeverityFlagBitsEXT 
 	//{
 	//	return VK_FALSE;
 	//}
+	if (strstr(pCallbackData->pMessage, "SPIR-V module not valid: Member index 0 is missing a location assignment"))
+	{
+		return VK_FALSE;
+	}
 
 	char prefix[64] = "";
 	char* message = new char[strlen(pCallbackData->pMessage) + 5000];

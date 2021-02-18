@@ -2,10 +2,11 @@
 
 #extension GL_NV_mesh_shader : require
 #extension GL_GOOGLE_include_directive : require
+//#extension GL_KHR_shader_subgroup_arithmetic : require
 
 #include "mesh.h"
 
-#define CULL 1
+#define CULL 0
 
 layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
 
@@ -14,6 +15,7 @@ layout(binding = 1) readonly buffer Meshlets
 	Meshlet meshlets[];
 };
 
+// Causes: https://github.com/KhronosGroup/Vulkan-ValidationLayers/issues/2102
 out taskNV task_block
 {
 	// uint meshlet_offset;
@@ -37,7 +39,7 @@ bool coneCull(vec4 cone, vec3 view)
 	return dot(cone.xyz, -view) > cone.w;
 }
 
-shared uint meshlet_count;
+// shared uint meshlet_count;
 
 void main()
 {
@@ -46,25 +48,17 @@ void main()
 	const uint mi = gi * 32 + ti;
 
 #if CULL
-	if (ti == 0)
-	{
-		meshlet_count = 0;
-	}
-	// TODO: Necessary? Arseny thinks it's a no-op here because group size == warp size.
-	memoryBarrierShared();
+	const uint accept = coneCull(meshlets[mi].cone, vec3(0, 0, 1)) ? 0 : 1;
+	const uint index = subgroupExclusiveAdd(accept);
 
-
-	if (!coneCull(meshlets[mi].cone, vec3(0, 0, 1)))
+	if (accept == 1)
 	{
-		const uint index = atomicAdd(meshlet_count, 1);
 		meshlet_indices[index] = mi;
 	}
 
-	// TODO: Necessary? Arseny thinks it's a no-op here because group size == warp size.
-	memoryBarrierShared();
-	if (ti == 0)
+	if (ti == 31)
 	{
-		gl_TaskCountNV = meshlet_count;
+		gl_TaskCountNV = index + accept;
 	}
 #else
 	meshlet_indices[ti] = mi;
