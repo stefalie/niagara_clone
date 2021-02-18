@@ -73,6 +73,8 @@ struct Mesh
 	std::vector<Meshlet> meshlets;
 };
 
+#define VSYNC 0
+
 bool rtx_supported = false;
 bool rtx_enabled = false;
 
@@ -519,14 +521,16 @@ int main(int argc, char* argv[])
 	// TODO: Critical for perf.
 	VkPipelineCache pipeline_cache = VK_NULL_HANDLE;
 
+	Shaders mesh_shaders = { &mesh_vert, &mesh_frag };
+	Shaders meshlet_shaders = { &meshlet_task, &meshlet_mesh, &mesh_frag };
 
-	VkDescriptorSetLayout set_layout = CreateDescriptorSetLayout(device, { &mesh_vert, &mesh_frag });
+	VkDescriptorSetLayout set_layout = CreateDescriptorSetLayout(device, mesh_shaders);
 	assert(set_layout);
 	VkPipelineLayout mesh_pipeline_layout = CreatePipelineLayout(device, set_layout);
 	VkDescriptorUpdateTemplate mesh_update_template = CreateUpdateTemplate(
-			device, VK_PIPELINE_BIND_POINT_GRAPHICS, set_layout, mesh_pipeline_layout, { &mesh_vert, &mesh_frag });
+			device, VK_PIPELINE_BIND_POINT_GRAPHICS, set_layout, mesh_pipeline_layout, mesh_shaders);
 	VkPipeline mesh_pipeline = CreateGraphicsPipeline(
-			device, pipeline_cache, render_pass, mesh_pipeline_layout, { &mesh_vert, &mesh_frag });
+			device, pipeline_cache, render_pass, mesh_pipeline_layout, mesh_shaders);
 	assert(mesh_pipeline);
 
 	VkDescriptorSetLayout set_layout_rtx = VK_NULL_HANDLE;
@@ -535,13 +539,13 @@ int main(int argc, char* argv[])
 	VkPipeline mesh_pipeline_rtx = VK_NULL_HANDLE;
 	if (rtx_supported)
 	{
-		set_layout_rtx = CreateDescriptorSetLayout(device, { &meshlet_task, &meshlet_mesh, &mesh_frag });
+		set_layout_rtx = CreateDescriptorSetLayout(device, meshlet_shaders);
 		assert(set_layout_rtx);
 		mesh_pipeline_layout_rtx = CreatePipelineLayout(device, set_layout_rtx);
-		mesh_update_template_rtx = CreateUpdateTemplate(device, VK_PIPELINE_BIND_POINT_GRAPHICS, set_layout_rtx,
-				mesh_pipeline_layout_rtx, { &meshlet_task, &meshlet_mesh, &mesh_frag });
-		mesh_pipeline_rtx = CreateGraphicsPipeline(device, pipeline_cache, render_pass, mesh_pipeline_layout_rtx,
-				{ &meshlet_task, &meshlet_mesh, &mesh_frag });
+		mesh_update_template_rtx = CreateUpdateTemplate(
+				device, VK_PIPELINE_BIND_POINT_GRAPHICS, set_layout_rtx, mesh_pipeline_layout_rtx, meshlet_shaders);
+		mesh_pipeline_rtx =
+				CreateGraphicsPipeline(device, pipeline_cache, render_pass, mesh_pipeline_layout_rtx, meshlet_shaders);
 		assert(mesh_pipeline_rtx);
 	}
 
@@ -670,7 +674,7 @@ int main(int argc, char* argv[])
 		// We won't use descriptor set binding, we'll use an extension exposed by Intel and NVidia only.
 		// They are like push constants, but for descriptor sets.
 
-		size_t draw_count = 200;
+		size_t draw_count = 10;
 
 		if (rtx_enabled)
 		{
@@ -805,13 +809,16 @@ int main(int argc, char* argv[])
 
 			const double frame_end_cpu = glfwGetTime() * 1000.0;
 
+			const double tris_per_sec =
+					double(draw_count) * double(mesh.indices.size() / 3) / ((frame_end_gpu - frame_begin_gpu) * 1e-3);
+
 			frame_avg_cpu = frame_avg_cpu * 0.95 + (frame_end_cpu - frame_begin_cpu) * 0.05;
 			frame_avg_gpu = frame_avg_gpu * 0.95 + (frame_end_gpu - frame_begin_gpu) * 0.05;
 
 			char title[256];
-			sprintf(title, "%s; CPU: %.1f ms; wait %.2f ms; GPU: %.3f ms; triangles %d; meshlets %d",
+			sprintf(title, "%s; CPU: %.1f ms; wait %.2f ms; GPU: %.3f ms; triangles %d; meshlets %d; %.2fB tris/s",
 					rtx_enabled ? "RTX" : "non-RTX", frame_avg_cpu, (wait_end - wait_begin), frame_avg_gpu,
-					(int)(mesh.indices.size() / 3), (int)(mesh.meshlets.size()));
+					(int)(mesh.indices.size() / 3), (int)(mesh.meshlets.size()), tris_per_sec * 1e-9f);
 			glfwSetWindowTitle(window, title);
 		}
 	}
@@ -1591,9 +1598,10 @@ VkSwapchainKHR CreateSwapchain(VkDevice device, VkSurfaceKHR surface, VkSurfaceC
 	// swapchain_create_info.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
 	// NOTE: Android doesn't support opaque bit, it supports 0x2 or 0x4.
 	swapchain_create_info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;  // surface_composite;
-	// FIFO for V-Sync.
-	swapchain_create_info.presentMode = VK_PRESENT_MODE_FIFO_KHR;
-	// swapchain_create_info.presentMode = VK_PRESENT_MODE_IMMEDIATE_KHR;
+	// According to Arseny, querying for V-Sync on NVidia will tell you that
+	// it's not available even though it is, and if you enable it anyway, the
+	// validation layers will be upset.
+	swapchain_create_info.presentMode = VSYNC ? VK_PRESENT_MODE_FIFO_KHR : VK_PRESENT_MODE_IMMEDIATE_KHR;
 	swapchain_create_info.oldSwapchain = old_swapchain;
 
 	VkSwapchainKHR swapchain = VK_NULL_HANDLE;

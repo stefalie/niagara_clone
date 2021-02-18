@@ -2,7 +2,7 @@
 
 #extension GL_NV_mesh_shader : require
 #extension GL_GOOGLE_include_directive : require
-#define BALLOT 0
+#define BALLOT 1
 #if BALLOT
 #extension GL_KHR_shader_subgroup_ballot : require
 #else
@@ -11,7 +11,7 @@
 
 #include "mesh.h"
 
-#define CULL 1
+#define CULL 0
 
 layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
 

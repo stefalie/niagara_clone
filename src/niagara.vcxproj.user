@@ -3,11 +3,11 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LocalDebuggerWorkingDirectory>$(OutputPath)</LocalDebuggerWorkingDirectory>
     <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>
-    <LocalDebuggerCommandArguments>$(SolutionDir)..\data\kitten.obj</LocalDebuggerCommandArguments>
+    <LocalDebuggerCommandArguments>$(SolutionDir)..\data\buddha.obj</LocalDebuggerCommandArguments>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LocalDebuggerWorkingDirectory>$(OutputPath)</LocalDebuggerWorkingDirectory>
     <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>
-    <LocalDebuggerCommandArguments>$(SolutionDir)..\data\kitten.obj</LocalDebuggerCommandArguments>
+    <LocalDebuggerCommandArguments>$(SolutionDir)..\data\buddha.obj</LocalDebuggerCommandArguments>
   </PropertyGroup>
 </Project>

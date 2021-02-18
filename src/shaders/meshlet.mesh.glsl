@@ -5,7 +5,7 @@
 
 #include "mesh.h"
 
-#define DEBUG 1
+#define DEBUG 0
 
 // 64 for potential AMD
 layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
@@ -63,6 +63,7 @@ uint hash(uint a)
 
 void main()
 {
+	// const uint mi = gl_WorkGroupID.x;
 	// const uint mi = gl_WorkGroupID.x + meshlet_offset;
 	const uint mi = meshlet_indices[gl_WorkGroupID.x];
 	const uint ti = gl_LocalInvocationID.x;
