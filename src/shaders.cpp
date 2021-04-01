@@ -241,11 +241,10 @@ VkDescriptorUpdateTemplate CreateUpdateTemplate(VkDevice device, VkPipelineBindP
 	VkDescriptorUpdateTemplateCreateInfo template_create_info = {
 		VK_STRUCTURE_TYPE_DESCRIPTOR_UPDATE_TEMPLATE_CREATE_INFO
 	};
-	template_create_info.flags;
 	template_create_info.descriptorUpdateEntryCount = uint32_t(entries.size());
 	template_create_info.pDescriptorUpdateEntries = entries.data();
 	template_create_info.templateType = VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_PUSH_DESCRIPTORS_KHR;
-	// Note needed with push descriptor.
+	// Not needed with push descriptor.
 	// template_create_info.descriptorSetLayout = set_layout;
 	template_create_info.pipelineBindPoint = bind_point;
 	template_create_info.pipelineLayout = pipeline_layout;

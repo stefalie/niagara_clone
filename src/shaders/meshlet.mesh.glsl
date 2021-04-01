@@ -32,7 +32,7 @@ layout(binding = 0) readonly buffer Vertices
 // 16 kB allows for 256 b if using 64 vertices, we only use 32 b (position + color).
 //
 // Terrain is probably close to optimal -> 126 triangles
-// General purpose -> 83 triangles
+// General purpose -> 83 triangles (84 no? (2 * 128 - 4) / 3)
 // Minecraft/Roblox is crazy (because you need different normals for the "same" vertex") -> 41 triangles
 
 layout(binding = 1) readonly buffer Meshlets
@@ -129,13 +129,13 @@ void main()
 	const uint index_chunk_count = (index_count + 3) / 4;
 	for (uint i = ti; i < index_chunk_count; i += 32)
 	{
-		writePackedPrimitiveIndices4x8NV(i * 4, meshlets[mi].indices[i]);
+		writePackedPrimitiveIndices4x8NV(i * 4, meshlets[mi].indices_packed[i]);
 	}
 	// const uint index_chunk_count = (index_count + 7) / 8;
 	// for (uint i = ti; i < index_chunk_count; i += 32)
 	//{
-	//	writePackedPrimitiveIndices4x8NV(i * 8 + 0, meshlets[mi].indices[i * 2 + 0]);
-	//	writePackedPrimitiveIndices4x8NV(i * 8 + 4, meshlets[mi].indices[i * 2 + 1]);
+	//	writePackedPrimitiveIndices4x8NV(i * 8 + 0, meshlets[mi].indices_packed[i * 2 + 0]);
+	//	writePackedPrimitiveIndices4x8NV(i * 8 + 4, meshlets[mi].indices_packed[i * 2 + 1]);
 	//}
 #endif
 

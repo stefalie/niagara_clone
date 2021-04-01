@@ -1,4 +1,4 @@
-#define USE_UNPACK 0  // Pack is faster it seems
+#define USE_UNPACK 1  // Pack is faster it seems
 // I guess intead of relying on these extensions we could also make use of
 // the pack/unpack intrinsics. Done!
 #if !USE_UNPACK
@@ -18,8 +18,6 @@ struct Vertex
 	float vx, vy, vz;
 	//float16_t vx, vy, vz, vw;
 	// float nx, ny, nz;
-	// TODO: unpack currently doesn't work, because the alignment of the field
-	// inside the Vertex struct is incorrect with the uint.
 #if USE_UNPACK
 	uint n_packed;
 #else
@@ -33,14 +31,14 @@ struct Vertex
 
 struct Meshlet
 {
-	vec4 cone;  // No vec4, because that woul need 16-byte alignment
+	vec4 cone;  // Meshlet struct needs to be 16 byte aligned.
 	uint vertices[64];
 #if !USE_PACKED_INDICES
 	uint8_t indices[124 * 3];  // Max 126 triangles. 124 for by-4-divisibility
 							   // uint8_t pad_1;
 							   // uint8_t pad_2;
 #else                          // This will completely break the normal computation.
-	uint indices[124 * 3 / 4];  // Max 126 triangles.
+	uint indices_packed[124 * 3 / 4];  // Max 126 triangles.
 #endif
 	uint8_t vertex_count;
 	uint8_t triangle_count;

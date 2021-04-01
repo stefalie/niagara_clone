@@ -294,6 +294,7 @@ void CreateBuffer(Buffer& result, VkDevice device, const VkPhysicalDeviceMemoryP
 	void* data = nullptr;
 	if (memory_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
 	{
+		// TODO: Do we ever unmap?
 		VK_CHECK(vkMapMemory(device, memory, 0, size, 0, &data));
 	}
 	// I think Areseny mentioned something along the lines: "host visible + coherent is similar to OpenGL's persistent
@@ -410,11 +411,12 @@ int main(int argc, char* argv[])
 	VkInstance instance = CreateInstance();
 	assert(instance);
 
-	volkLoadInstance(instance);
+	// volkLoadInstance(instance);
+	volkLoadInstanceOnly(instance);
 
 #ifdef _DEBUG
-	VkDebugReportCallbackEXT debug_callback = RegisterDebugCallback(instance);
-	assert(debug_callback);
+	// VkDebugReportCallbackEXT debug_callback = RegisterDebugCallback(instance);
+	// assert(debug_callback);
 	VkDebugUtilsMessengerEXT debug_messenger = RegisterDebugUtilsMessenger(instance);
 	assert(debug_messenger);
 #endif
@@ -439,6 +441,7 @@ int main(int argc, char* argv[])
 
 	VkPhysicalDeviceProperties physical_device_props = {};
 	vkGetPhysicalDeviceProperties(physical_device, &physical_device_props);
+	// TODO: put into PickPhysicalDevice
 	assert(physical_device_props.limits.timestampComputeAndGraphics);
 
 
@@ -447,6 +450,8 @@ int main(int argc, char* argv[])
 
 	VkDevice device = CreateDevice(instance, physical_device, family_index, rtx_supported);
 	assert(device);
+
+	volkLoadDevice(device);
 
 	const int window_width = 1024 * 2;
 	const int window_height = 768 * 2;
@@ -875,12 +880,40 @@ int main(int argc, char* argv[])
 	vkDestroyDevice(device, nullptr);
 
 #ifdef _DEBUG
-	vkDestroyDebugReportCallbackEXT(instance, debug_callback, nullptr);
+	// vkDestroyDebugReportCallbackEXT(instance, debug_callback, nullptr);
 	vkDestroyDebugUtilsMessengerEXT(instance, debug_messenger, nullptr);
 #endif
 	vkDestroyInstance(instance, nullptr);
 
 	return 0;
+}
+
+bool CheckLayerSupport(const std::vector<const char*>& layers)
+{
+	uint32_t layer_count = 0;
+	VK_CHECK(vkEnumerateInstanceLayerProperties(&layer_count, nullptr));
+	std::vector<VkLayerProperties> available_layers(layer_count);
+	VK_CHECK(vkEnumerateInstanceLayerProperties(&layer_count, available_layers.data()));
+
+	for (const char* requested_layer : layers)
+	{
+		bool found = false;
+
+		for (uint32_t i = 0; i < layer_count; ++i)
+		{
+			if (strcmp(requested_layer, available_layers[i].layerName) == 0)
+			{
+				found = true;
+				break;
+			}
+		}
+		if (!found)
+		{
+			return false;
+		}
+	}
+
+	return true;
 }
 
 VkInstance CreateInstance()
@@ -894,7 +927,7 @@ VkInstance CreateInstance()
 	instance_create_info.pApplicationInfo = &app_info;
 
 	// SHORTCUT: Check availability of theses?
-	char const* const debug_layers[] = {
+	std::vector<const char*> debug_layers = {
 		"VK_LAYER_KHRONOS_validation",
 		// TODO: What's the difference? I believe above supersedes this.
 		//"VK_LAYER_LUNARG_standard_validation",
@@ -903,8 +936,12 @@ VkInstance CreateInstance()
 
 	};
 #ifdef _DEBUG
-	instance_create_info.ppEnabledLayerNames = debug_layers;
-	instance_create_info.enabledLayerCount = ARRAYSIZE(debug_layers);
+	// I don't think checking is required, it just won't be able to create the
+	// instance if requested layers are unavailable.
+	assert(CheckLayerSupport(debug_layers));
+
+	instance_create_info.ppEnabledLayerNames = debug_layers.data();
+	instance_create_info.enabledLayerCount = uint32_t(debug_layers.size());
 #endif
 
 	char const* const extensions[] = {
@@ -1041,7 +1078,6 @@ static VkBool32 DebugUtilsCallbackLunarG(VkDebugUtilsMessageSeverityFlagBitsEXT 
 	char prefix[64] = "";
 	char* message = new char[strlen(pCallbackData->pMessage) + 5000];
 	assert(message);
-	struct demo* demo = (struct demo*)pUserData;
 
 	if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT)
 	{
@@ -1127,6 +1163,11 @@ static VkBool32 DebugUtilsCallbackLunarG(VkDebugUtilsMessageSeverityFlagBitsEXT 
 	fflush(stdout);
 
 	delete[] message;
+
+	if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
+	{
+		assert(!"Validation error!");
+	}
 	return false;
 }
 
@@ -1330,6 +1371,8 @@ VkDevice CreateDevice(VkInstance instance, VkPhysicalDevice physical_device, uin
 		VK_KHR_16BIT_STORAGE_EXTENSION_NAME,        // Using 16 bit in storage buffers
 		VK_KHR_8BIT_STORAGE_EXTENSION_NAME,         // Using 8 bit in storage buffers
 		VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME,  // Using 8/16 bit arithmetic in shaders
+		// VK_EXT_SHADER_SUBGROUP_BALLOT_EXTENSION_NAME,  // I don't think this is necessary
+		// VK_EXT_SHADER_SUBGROUP_VOTE_EXTENSION_NAME,  // I don't think this is necessary
 	};
 	if (rtx_supported)
 	{
@@ -1527,7 +1570,7 @@ VkCommandPool CreateCommandBufferPool(VkDevice device, uint32_t family_index)
 	cmd_pool_create_info.queueFamilyIndex = family_index;
 
 	VkCommandPool cmd_pool = VK_NULL_HANDLE;
-	vkCreateCommandPool(device, &cmd_pool_create_info, nullptr, &cmd_pool);
+	VK_CHECK(vkCreateCommandPool(device, &cmd_pool_create_info, nullptr, &cmd_pool));
 
 	return cmd_pool;
 }
