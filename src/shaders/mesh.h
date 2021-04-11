@@ -33,3 +33,9 @@ struct Meshlet
 	uint8_t triangle_count;
 };
 
+
+struct MeshDraw
+{
+	vec2 offset;
+	vec2 scale;
+};

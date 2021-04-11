@@ -54,20 +54,22 @@ struct alignas(16) Meshlet
 	// [(data_offset + vertex_count), (data_offset + vertex_count + index_count)] stores packed 4b meshlet indices
 	uint32_t data_offset;
 
-	//// TODO indirection for now.
+	// OLD
 	// uint32_t vertices[64];
-	//
-	//// gl_PrimitiveCountNV + gl_PrimitiveINdicesNV[]
-	//// OLD: // together should take no more than 128 bytes, hence 42 triangles + count.
-	//// together they up a multiple of 128 bytes, indices take bytes, the count 4 bytes (wtf, why?), hence 126
-	/// triangles / + count. We lower to 124 triangles for a divisibility by 4.
+	// gl_PrimitiveCountNV + gl_PrimitiveINdicesNV[]
+	// OLD: // together should take no more than 128 bytes, hence 42 triangles + count.
+	// together they up a multiple of 128 bytes, indices take bytes, the count 4 bytes (wtf, why?), hence 126
+	// triangles / + count. We lower to 124 triangles for a divisibility by 4.
 	// uint8_t indices[124 * 3];
-
-	// uint8_t pad_1;
-	// uint8_t pad_2;
 
 	uint8_t vertex_count;
 	uint8_t triangle_count;
+};
+
+struct alignas(16) MeshDraw
+{
+	float offset[2];
+	float scale[2];
 };
 
 struct Mesh
@@ -551,7 +553,7 @@ int main(int argc, char* argv[])
 
 	VkDescriptorSetLayout set_layout = CreateDescriptorSetLayout(device, mesh_shaders);
 	assert(set_layout);
-	VkPipelineLayout mesh_pipeline_layout = CreatePipelineLayout(device, set_layout);
+	VkPipelineLayout mesh_pipeline_layout = CreatePipelineLayout(device, set_layout, sizeof(MeshDraw));
 	VkDescriptorUpdateTemplate mesh_update_template = CreateUpdateTemplate(
 			device, VK_PIPELINE_BIND_POINT_GRAPHICS, set_layout, mesh_pipeline_layout, mesh_shaders);
 	VkPipeline mesh_pipeline =
@@ -566,7 +568,7 @@ int main(int argc, char* argv[])
 	{
 		set_layout_rtx = CreateDescriptorSetLayout(device, meshlet_shaders);
 		assert(set_layout_rtx);
-		mesh_pipeline_layout_rtx = CreatePipelineLayout(device, set_layout_rtx);
+		mesh_pipeline_layout_rtx = CreatePipelineLayout(device, set_layout_rtx, sizeof(MeshDraw));
 		mesh_update_template_rtx = CreateUpdateTemplate(
 				device, VK_PIPELINE_BIND_POINT_GRAPHICS, set_layout_rtx, mesh_pipeline_layout_rtx, meshlet_shaders);
 		mesh_pipeline_rtx =
@@ -705,7 +707,15 @@ int main(int argc, char* argv[])
 		// We won't use descriptor set binding, we'll use an extension exposed by Intel and NVidia only.
 		// They are like push constants, but for descriptor sets.
 
-		size_t draw_count = 1;
+		size_t draw_count = 100;
+		std::vector<MeshDraw> draws(draw_count);
+		for (uint32_t i = 0; i < draw_count; ++i)
+		{
+			draws[i].offset[0] = ((i % 10) + 0.5f) / 10.0f;
+			draws[i].offset[1] = ((i / 10) + 0.5f) / 10.0f;
+			draws[i].scale[0] = 1.0f / 10.0f;
+			draws[i].scale[1] = 1.0f / 10.0f;
+		}
 
 		if (rtx_enabled)
 		{
@@ -749,10 +759,12 @@ int main(int argc, char* argv[])
 					cmd_buf, mesh_update_template_rtx, mesh_pipeline_layout_rtx, 0, descriptors);
 
 
-			for (size_t i = 0; i < draw_count; ++i)
+			for (const auto& draw : draws)
 			{
 				// Without task shader:
 				// vkCmdDrawMeshTasksNV(cmd_buf, uint32_t(mesh.meshlets.size()), 0);
+
+				vkCmdPushConstants(cmd_buf, mesh_pipeline_layout_rtx, VK_SHADER_STAGE_ALL, 0, sizeof(draw), &draw);
 				vkCmdDrawMeshTasksNV(cmd_buf, uint32_t(mesh.meshlets.size()) / 32, 0);
 			}
 		}
@@ -780,8 +792,9 @@ int main(int argc, char* argv[])
 			vkCmdPushDescriptorSetWithTemplateKHR(cmd_buf, mesh_update_template, mesh_pipeline_layout, 0, descriptors);
 
 			vkCmdBindIndexBuffer(cmd_buf, index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
-			for (size_t i = 0; i < draw_count; ++i)
+			for (const auto& draw : draws)
 			{
+				vkCmdPushConstants(cmd_buf, mesh_pipeline_layout, VK_SHADER_STAGE_ALL, 0, sizeof(draw), &draw);
 				vkCmdDrawIndexed(cmd_buf, uint32_t(mesh.indices.size()), 1, 0, 0, 0);
 			}
 		}
@@ -847,8 +860,7 @@ int main(int argc, char* argv[])
 			frame_avg_cpu = frame_avg_cpu * 0.95 + (frame_end_cpu - frame_begin_cpu) * 0.05;
 			frame_avg_gpu = frame_avg_gpu * 0.95 + (frame_end_gpu - frame_begin_gpu) * 0.05;
 
-			const double tris_per_sec =
-					double(draw_count) * double(mesh.indices.size() / 3) / (frame_avg_gpu * 1e-3);
+			const double tris_per_sec = double(draw_count) * double(mesh.indices.size() / 3) / (frame_avg_gpu * 1e-3);
 
 			char title[256];
 			sprintf(title, "%s; CPU: %.1f ms; wait %.2f ms; GPU: %.3f ms; triangles %d; meshlets %d; %.2fB tris/s",

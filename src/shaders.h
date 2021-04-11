@@ -17,7 +17,7 @@ using Shaders = std::initializer_list<const Shader*>;
 
 VkDescriptorSetLayout CreateDescriptorSetLayout(VkDevice device, Shaders shaders);
 
-VkPipelineLayout CreatePipelineLayout(VkDevice device, VkDescriptorSetLayout set_layout);
+VkPipelineLayout CreatePipelineLayout(VkDevice device, VkDescriptorSetLayout set_layout, size_t push_constant_size);
 
 VkDescriptorUpdateTemplate CreateUpdateTemplate(VkDevice device, VkPipelineBindPoint bind_point,
 		VkDescriptorSetLayout set_layout, VkPipelineLayout pipeline_layout, Shaders shaders);
