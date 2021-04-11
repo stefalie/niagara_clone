@@ -108,6 +108,11 @@ static void ParseShader(Shader& shader, const uint32_t* code, uint32_t code_size
 
 			shader.storage_buffer_mask |= 1 << id.binding;
 		}
+
+		else if (id.kind_id == Id::Variable && id.storage_class == SpvStorageClassPushConstant)
+		{
+			shader.uses_push_constants = true;
+		}
 	}
 }
 
@@ -145,7 +150,6 @@ bool LoadShader(Shader& shader, VkDevice device, const char* path)
 
 	free(buffer);
 	shader.module = shader_module;
-	// shader.stage = ??;
 
 	return true;
 }
@@ -198,7 +202,7 @@ VkDescriptorSetLayout CreateDescriptorSetLayout(VkDevice device, Shaders shaders
 	return set_layout;
 }
 
-VkPipelineLayout CreatePipelineLayout(VkDevice device, VkDescriptorSetLayout set_layout, size_t push_constant_size)
+VkPipelineLayout CreatePipelineLayout(VkDevice device, VkDescriptorSetLayout set_layout, Shaders shaders, size_t push_constant_size)
 {
 	VkPipelineLayoutCreateInfo layout_create_info = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
 	layout_create_info.setLayoutCount = 1;
@@ -206,7 +210,13 @@ VkPipelineLayout CreatePipelineLayout(VkDevice device, VkDescriptorSetLayout set
 	if (push_constant_size > 0)
 	{
 		VkPushConstantRange range = {};
-		range.stageFlags = VK_SHADER_STAGE_ALL;
+		for (const Shader* shader : shaders)
+		{
+			if (shader->uses_push_constants)
+			{
+				range.stageFlags |= shader->stage;
+			}
+		}
 		range.size = uint32_t(push_constant_size);
 		layout_create_info.pushConstantRangeCount = 1;
 		layout_create_info.pPushConstantRanges = &range;

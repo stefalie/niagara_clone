@@ -553,13 +553,14 @@ int main(int argc, char* argv[])
 
 	VkDescriptorSetLayout set_layout = CreateDescriptorSetLayout(device, mesh_shaders);
 	assert(set_layout);
-	VkPipelineLayout mesh_pipeline_layout = CreatePipelineLayout(device, set_layout, sizeof(MeshDraw));
+	VkPipelineLayout mesh_pipeline_layout = CreatePipelineLayout(device, set_layout, mesh_shaders, sizeof(MeshDraw));
 	VkDescriptorUpdateTemplate mesh_update_template = CreateUpdateTemplate(
 			device, VK_PIPELINE_BIND_POINT_GRAPHICS, set_layout, mesh_pipeline_layout, mesh_shaders);
 	VkPipeline mesh_pipeline =
 			CreateGraphicsPipeline(device, pipeline_cache, render_pass, mesh_pipeline_layout, mesh_shaders);
 	assert(mesh_pipeline);
 
+	// TODO: Put set and pipeline layout into common struct
 	VkDescriptorSetLayout set_layout_rtx = VK_NULL_HANDLE;
 	VkPipelineLayout mesh_pipeline_layout_rtx = VK_NULL_HANDLE;
 	VkDescriptorUpdateTemplate mesh_update_template_rtx = VK_NULL_HANDLE;
@@ -568,7 +569,7 @@ int main(int argc, char* argv[])
 	{
 		set_layout_rtx = CreateDescriptorSetLayout(device, meshlet_shaders);
 		assert(set_layout_rtx);
-		mesh_pipeline_layout_rtx = CreatePipelineLayout(device, set_layout_rtx, sizeof(MeshDraw));
+		mesh_pipeline_layout_rtx = CreatePipelineLayout(device, set_layout_rtx, meshlet_shaders, sizeof(MeshDraw));
 		mesh_update_template_rtx = CreateUpdateTemplate(
 				device, VK_PIPELINE_BIND_POINT_GRAPHICS, set_layout_rtx, mesh_pipeline_layout_rtx, meshlet_shaders);
 		mesh_pipeline_rtx =
@@ -764,7 +765,8 @@ int main(int argc, char* argv[])
 				// Without task shader:
 				// vkCmdDrawMeshTasksNV(cmd_buf, uint32_t(mesh.meshlets.size()), 0);
 
-				vkCmdPushConstants(cmd_buf, mesh_pipeline_layout_rtx, VK_SHADER_STAGE_ALL, 0, sizeof(draw), &draw);
+				vkCmdPushConstants(
+						cmd_buf, mesh_pipeline_layout_rtx, VK_SHADER_STAGE_MESH_BIT_NV, 0, sizeof(draw), &draw);
 				vkCmdDrawMeshTasksNV(cmd_buf, uint32_t(mesh.meshlets.size()) / 32, 0);
 			}
 		}
@@ -794,7 +796,7 @@ int main(int argc, char* argv[])
 			vkCmdBindIndexBuffer(cmd_buf, index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
 			for (const auto& draw : draws)
 			{
-				vkCmdPushConstants(cmd_buf, mesh_pipeline_layout, VK_SHADER_STAGE_ALL, 0, sizeof(draw), &draw);
+				vkCmdPushConstants(cmd_buf, mesh_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(draw), &draw);
 				vkCmdDrawIndexed(cmd_buf, uint32_t(mesh.indices.size()), 1, 0, 0, 0);
 			}
 		}
