@@ -40,9 +40,25 @@ layout(binding = 1) readonly buffer Meshlets
 	Meshlet meshlets[];
 };
 
+#define USE_PACKED_INDICES 1
+
+layout(binding = 2) readonly buffer MeshletData
+{
+	// Imagine the layout as:
+	// struct MeshletData
+	// {
+	//     uint vertices[MAX 64];
+	// #if !USE_PACKED_INDICES
+	//     uint8_t indices[(MAX 124 * 3)];  // Max 126 triangles. 124 for by-4-divisibility
+	// #else
+	//     uint indices_packed[MAX (124 * 3 / 4)];  // Max 126 triangles.
+	// #endif
+	// } meshlet_data[N];
+	uint meshlet_data[];
+};
+
 in taskNV task_block
 {
-	// uint meshlet_offset;
 	uint meshlet_indices[32];
 };
 
@@ -63,14 +79,16 @@ uint hash(uint a)
 
 void main()
 {
-	// const uint mi = gl_WorkGroupID.x;
-	// const uint mi = gl_WorkGroupID.x + meshlet_offset;
 	const uint mi = meshlet_indices[gl_WorkGroupID.x];
 	const uint ti = gl_LocalInvocationID.x;
 
 	const uint vertex_count = meshlets[mi].vertex_count;
 	const uint triangle_count = meshlets[mi].triangle_count;
 	const uint index_count = 3 * triangle_count;
+
+	const uint data_offset = meshlets[mi].data_offset;
+	const uint vertex_offset = data_offset;
+	const uint index_offset = data_offset + vertex_count;
 
 #if DEBUG
 	const uint meshlet_hash = hash(mi);
@@ -81,7 +99,7 @@ void main()
 
 	for (uint i = ti; i < vertex_count; i += 32)
 	{
-		const uint vi = meshlets[mi].vertices[i];
+		const uint vi = meshlet_data[vertex_offset + i];
 		const Vertex v = vertices[vi];
 
 		const vec3 position = vec3(v.vx, v.vy, v.vz);
@@ -100,43 +118,17 @@ void main()
 #endif
 	}
 
-	//// Doesn't seem to work with the barrier and fetching from gl_MeshVerticesNV.
-	////memoryBarrier();
-	// for (uint i = ti; i < triangle_count; i += 32)
-	//{
-	//	const uint vi0 = meshlets[mi].vertices[uint(meshlets[mi].indices[3 * i + 0])];
-	//	const uint vi1 = meshlets[mi].vertices[uint(meshlets[mi].indices[3 * i + 1])];
-	//	const uint vi2 = meshlets[mi].vertices[uint(meshlets[mi].indices[3 * i + 2])];
-	//
-	//	const vec3 position0 = vec3(vertices[vi0].vx, vertices[vi0].vy, vertices[vi0].vz);
-	//	const vec3 position1 = vec3(vertices[vi1].vx, vertices[vi1].vy, vertices[vi1].vz);
-	//	const vec3 position2 = vec3(vertices[vi2].vx, vertices[vi2].vy, vertices[vi2].vz);
-	//
-	//	//const vec3 position0 = gl_MeshVerticesNV[vi0].gl_Position.xzy;
-	//	//const vec3 position1 = gl_MeshVerticesNV[vi1].gl_Position.xzy;
-	//	//const vec3 position2 = gl_MeshVerticesNV[vi2].gl_Position.xzy;
-	//
-	//	const vec3 normal = normalize(cross(position1 - position0, position2 - position0));
-	//	triangle_normals[i] = normal;
-	//}
-
 #if !USE_PACKED_INDICES
 	for (uint i = ti; i < index_count; i += 32)
 	{
-		gl_PrimitiveIndicesNV[i] = meshlets[mi].indices[i];
+		gl_PrimitiveIndicesNV[i] = (meshlet_data[index_offset + i / 4] >> ((i % 4) * 8)) & 255u;
 	}
 #else
 	const uint index_chunk_count = (index_count + 3) / 4;
 	for (uint i = ti; i < index_chunk_count; i += 32)
 	{
-		writePackedPrimitiveIndices4x8NV(i * 4, meshlets[mi].indices_packed[i]);
+		writePackedPrimitiveIndices4x8NV(i * 4, meshlet_data[index_offset + i]);
 	}
-	// const uint index_chunk_count = (index_count + 7) / 8;
-	// for (uint i = ti; i < index_chunk_count; i += 32)
-	//{
-	//	writePackedPrimitiveIndices4x8NV(i * 8 + 0, meshlets[mi].indices_packed[i * 2 + 0]);
-	//	writePackedPrimitiveIndices4x8NV(i * 8 + 4, meshlets[mi].indices_packed[i * 2 + 1]);
-	//}
 #endif
 
 	if (ti == 0)

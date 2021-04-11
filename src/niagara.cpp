@@ -50,14 +50,18 @@ struct alignas(16) Meshlet
 {
 	float cone[4];
 
-	// TODO indirection for now.
-	uint32_t vertices[64];
+	// [data_offset, (data_offset + vertex_count - 1)] stores vertex indices
+	// [(data_offset + vertex_count), (data_offset + vertex_count + index_count)] stores packed 4b meshlet indices
+	uint32_t data_offset;
 
-	// gl_PrimitiveCountNV + gl_PrimitiveINdicesNV[]
-	// OLD: // together should take no more than 128 bytes, hence 42 triangles + count.
-	// together they up a multiple of 128 bytes, indices take bytes, the count 4 bytes (wtf, why?), hence 126 triangles
-	// + count. We lower to 124 triangles for a divisibility by 4.
-	uint8_t indices[124 * 3];
+	//// TODO indirection for now.
+	// uint32_t vertices[64];
+	//
+	//// gl_PrimitiveCountNV + gl_PrimitiveINdicesNV[]
+	//// OLD: // together should take no more than 128 bytes, hence 42 triangles + count.
+	//// together they up a multiple of 128 bytes, indices take bytes, the count 4 bytes (wtf, why?), hence 126
+	/// triangles / + count. We lower to 124 triangles for a divisibility by 4.
+	// uint8_t indices[124 * 3];
 
 	// uint8_t pad_1;
 	// uint8_t pad_2;
@@ -71,6 +75,7 @@ struct Mesh
 	std::vector<Vertex> vertices;
 	std::vector<uint32_t> indices;
 	std::vector<Meshlet> meshlets;
+	std::vector<uint32_t> meshlet_data;
 };
 
 #define VSYNC 0
@@ -209,14 +214,29 @@ static void BuildMeshlets(Mesh& mesh)
 	for (size_t i = 0; i < meshlets.size(); ++i)
 	{
 		const meshopt_Meshlet& meshlet = meshlets[i];
+
+		const uint32_t data_offset = (uint32_t)mesh.meshlet_data.size();
+
+		// for (size_t j = 0; j < meshlet.vertex_count; ++j)
+		//{
+		//	mesh.meshlet_data.push_back(meshlet.vertices[j]);
+		//}
+		mesh.meshlet_data.insert(mesh.meshlet_data.end(), meshlet.vertices, meshlet.vertices + meshlet.vertex_count);
+
+		const size_t index_group_count = (meshlet.triangle_count * 3 + 3) / 4;
+		// uint32_t index_groups[(kMaxTriangles * 3 + 3) / 4] = {};
+		// memcpy(index_groups, meshlet.indices, meshlet.triangle_count * 3);
+		const uint32_t* index_groups = reinterpret_cast<const uint32_t*>(meshlet.indices);
+		mesh.meshlet_data.insert(mesh.meshlet_data.end(), index_groups, index_groups + index_group_count);
+
+		const meshopt_Bounds bounds =
+				meshopt_computeMeshletBounds(&meshlet, &mesh.vertices[0].vx, mesh.vertices.size(), sizeof(Vertex));
+
 		Meshlet m = {};
-		memcpy(m.vertices, meshlet.vertices, sizeof(m.vertices));
-		memcpy(m.indices, meshlet.indices, sizeof(m.indices));
+		m.data_offset = data_offset;
 		m.vertex_count = meshlet.vertex_count;
 		m.triangle_count = meshlet.triangle_count;
 
-		meshopt_Bounds bounds =
-				meshopt_computeMeshletBounds(&meshlet, &mesh.vertices[0].vx, mesh.vertices.size(), sizeof(Vertex));
 		m.cone[0] = bounds.cone_axis[0];
 		m.cone[1] = bounds.cone_axis[1];
 		m.cone[2] = bounds.cone_axis[2];
@@ -588,24 +608,30 @@ int main(int argc, char* argv[])
 	CreateBuffer(index_buffer, device, memory_properties, 128 * 1024 * 1024,
 			VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 	Buffer meshlet_buffer = {};
+	Buffer meshlet_data_buffer = {};
 	if (rtx_supported)
 	{
 		CreateBuffer(meshlet_buffer, device, memory_properties, 128 * 1024 * 1024,
+				VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+				VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+		CreateBuffer(meshlet_data_buffer, device, memory_properties, 128 * 1024 * 1024,
 				VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 				VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 	}
 
 	assert(vertex_buffer.size >= mesh.vertices.size() * sizeof(Vertex));
 	UploadBuffer(device, cmd_buf_pool, cmd_buf, queue, vertex_buffer, scratch_buffer, mesh.vertices.data(),
-			mesh.vertices.size() * sizeof(Vertex));
+			mesh.vertices.size() * sizeof(mesh.vertices[0]));
 	assert(index_buffer.size >= mesh.indices.size() * sizeof(uint32_t));
 	UploadBuffer(device, cmd_buf_pool, cmd_buf, queue, index_buffer, scratch_buffer, mesh.indices.data(),
-			mesh.indices.size() * sizeof(uint32_t));
+			mesh.indices.size() * sizeof(mesh.indices[0]));
 	if (rtx_supported)
 	{
 		assert(meshlet_buffer.size >= mesh.meshlets.size() * sizeof(Meshlet));
 		UploadBuffer(device, cmd_buf_pool, cmd_buf, queue, meshlet_buffer, scratch_buffer, mesh.meshlets.data(),
-				mesh.meshlets.size() * sizeof(Meshlet));
+				mesh.meshlets.size() * sizeof(mesh.meshlets[0]));
+		UploadBuffer(device, cmd_buf_pool, cmd_buf, queue, meshlet_data_buffer, scratch_buffer,
+				mesh.meshlet_data.data(), mesh.meshlet_data.size() * sizeof(mesh.meshlet_data[0]));
 	}
 
 	double frame_avg_cpu = 0.0;
@@ -714,7 +740,11 @@ int main(int argc, char* argv[])
 			// vkCmdPushDescriptorSetKHR(cmd_buf, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh_pipeline_layout_rtx, 0,
 			//		ARRAYSIZE(descriptors), descriptors);
 
-			DescriptorInfo descriptors[] = { vertex_buffer.buffer, meshlet_buffer.buffer };
+			DescriptorInfo descriptors[] = {
+				vertex_buffer.buffer,
+				meshlet_buffer.buffer,
+				meshlet_data_buffer.buffer,
+			};
 			vkCmdPushDescriptorSetWithTemplateKHR(
 					cmd_buf, mesh_update_template_rtx, mesh_pipeline_layout_rtx, 0, descriptors);
 
@@ -814,11 +844,11 @@ int main(int argc, char* argv[])
 
 			const double frame_end_cpu = glfwGetTime() * 1000.0;
 
-			const double tris_per_sec =
-					double(draw_count) * double(mesh.indices.size() / 3) / ((frame_end_gpu - frame_begin_gpu) * 1e-3);
-
 			frame_avg_cpu = frame_avg_cpu * 0.95 + (frame_end_cpu - frame_begin_cpu) * 0.05;
 			frame_avg_gpu = frame_avg_gpu * 0.95 + (frame_end_gpu - frame_begin_gpu) * 0.05;
+
+			const double tris_per_sec =
+					double(draw_count) * double(mesh.indices.size() / 3) / (frame_avg_gpu * 1e-3);
 
 			char title[256];
 			sprintf(title, "%s; CPU: %.1f ms; wait %.2f ms; GPU: %.3f ms; triangles %d; meshlets %d; %.2fB tris/s",
@@ -833,6 +863,7 @@ int main(int argc, char* argv[])
 	if (rtx_supported)
 	{
 		DestroyBuffer(meshlet_buffer, device);
+		DestroyBuffer(meshlet_data_buffer, device);
 	}
 	DestroyBuffer(vertex_buffer, device);
 	DestroyBuffer(index_buffer, device);
@@ -982,11 +1013,10 @@ static VkBool32 DebugReportCallback(VkDebugReportFlagsEXT flags, VkDebugReportOb
 		return VK_FALSE;
 	}
 
-	const char* type = (flags & VK_DEBUG_REPORT_ERROR_BIT_EXT) ?
-			"ERROR" :
-			(flags & (VK_DEBUG_REPORT_WARNING_BIT_EXT | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT)) ?
-			"WARNING" :
-			(flags & VK_DEBUG_REPORT_DEBUG_BIT_EXT) ? "DEBUG" : "INFO";
+	const char* type = (flags & VK_DEBUG_REPORT_ERROR_BIT_EXT)                                        ? "ERROR" :
+			(flags & (VK_DEBUG_REPORT_WARNING_BIT_EXT | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT)) ? "WARNING" :
+			(flags & VK_DEBUG_REPORT_DEBUG_BIT_EXT)                                                   ? "DEBUG" :
+                                                                                                        "INFO";
 
 	char message[4096];
 	snprintf(message, ARRAYSIZE(message), "%s: %s\n\n", type, pMessage);
@@ -1616,12 +1646,12 @@ VkSwapchainKHR CreateSwapchain(VkDevice device, VkSurfaceKHR surface, VkSurfaceC
 
 	const VkCompositeAlphaFlagBitsKHR surface_composite =
 			(surface_caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR) ?
-			VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR :
+            VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR :
 			(surface_caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR) ?
-			VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR :
+            VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR :
 			(surface_caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR) ?
-			VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR :
-			VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;  // One option is always guaranteed to be supported.
+            VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR :
+            VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;  // One option is always guaranteed to be supported.
 
 	VkSwapchainCreateInfoKHR swapchain_create_info = { VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR };
 	swapchain_create_info.surface = surface;
