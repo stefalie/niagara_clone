@@ -5,7 +5,7 @@
 
 #include "mesh.h"
 
-#define DEBUG 1
+#define DEBUG 0
 
 // 64 for potential AMD
 layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
@@ -115,7 +115,7 @@ void main()
 #endif
 		const vec2 uv = vec2(v.tu, v.tv);
 
-		gl_MeshVerticesNV[i].gl_Position = vec4((position * vec3(mesh_draw.scale, 1.0) + vec3(mesh_draw.offset, 0.0)) * vec3(2, 2, 0.5) + vec3(-1, -1, 0.5), 1.0);
+		gl_MeshVerticesNV[i].gl_Position = mesh_draw.projection * vec4(position * mesh_draw.scale + mesh_draw.position, 1.0);
 
 		color[i] = vec4(normal * 0.5 + vec3(0.5), 1.0);
 #if DEBUG

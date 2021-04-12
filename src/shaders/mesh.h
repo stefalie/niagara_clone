@@ -36,6 +36,8 @@ struct Meshlet
 
 struct MeshDraw
 {
-	vec2 offset;
-	vec2 scale;
+	mat4 projection;
+	vec3 position;
+	float scale;
+	vec4 orientation;
 };

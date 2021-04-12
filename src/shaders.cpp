@@ -336,7 +336,7 @@ VkPipeline CreateGraphicsPipeline(VkDevice device, VkPipelineCache pipeline_cach
 	};
 	raster_state.polygonMode = VK_POLYGON_MODE_FILL;
 	// TODO: Count on 0 being ok for all this.
-	raster_state.cullMode = VK_CULL_MODE_BACK_BIT;
+	raster_state.cullMode = VK_CULL_MODE_BACK_BIT;  // From RH -> LH: change to front
 	//raster_state.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 	// raster_state.frontFace = VK_FRONT_FACE_CLOCKWISE;
 	// raster_state.depthBiasEnable;

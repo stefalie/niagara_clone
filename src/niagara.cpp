@@ -13,6 +13,10 @@
 #include <GLFW/glfw3.h>
 #include <GLFW/glfw3native.h>
 
+#include <glm/ext/quaternion_float.hpp>
+#include <glm/mat4x4.hpp>
+#include <glm/vec4.hpp>
+
 #include "common.h"
 #include "shaders.h"
 
@@ -46,6 +50,11 @@ struct Vertex
 	uint16_t tu, tv;
 };
 
+struct alignas(16) Global
+{
+	glm::mat4 projection;
+};
+
 struct alignas(16) Meshlet
 {
 	float cone[4];
@@ -68,8 +77,10 @@ struct alignas(16) Meshlet
 
 struct alignas(16) MeshDraw
 {
-	float offset[2];
-	float scale[2];
+	glm::mat4 projection;
+	glm::vec3 position;
+	float scale;
+	glm::quat orientation;
 };
 
 struct Mesh
@@ -469,6 +480,19 @@ void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
 	}
 }
 
+glm::mat4 ReverseInfiniteProjectionRightHandedWithoutEpsilon(float fovy_radians, float aspect_w_by_h, float z_near)
+{
+	float f = 1.0f / tanf(fovy_radians / 2.0f);
+	return glm::mat4(
+			// clang-format off
+			f / aspect_w_by_h, 0.0f,   0.0f,  0.0f,
+			             0.0f,    f,   0.0f,  0.0f,
+			             0.0f, 0.0f,   0.0f, -1.0f,  // From RH -> LH: remove -
+			             0.0f, 0.0f, z_near,  0.0f
+			// clang-format on
+	);
+}
+
 int main(int argc, char* argv[])
 {
 	if (argc < 2)
@@ -758,14 +782,18 @@ int main(int argc, char* argv[])
 		// We won't use descriptor set binding, we'll use an extension exposed by Intel and NVidia only.
 		// They are like push constants, but for descriptor sets.
 
+		const glm::mat4 projection = ReverseInfiniteProjectionRightHandedWithoutEpsilon(
+				glm::radians(70.0f), float(swapchain.width) / float(swapchain.height), 0.01f);
+
 		size_t draw_count = 100;
 		std::vector<MeshDraw> draws(draw_count);
 		for (uint32_t i = 0; i < draw_count; ++i)
 		{
-			draws[i].offset[0] = ((i % 10) + 0.5f) / 10.0f;
-			draws[i].offset[1] = ((i / 10) + 0.5f) / 10.0f;
-			draws[i].scale[0] = 1.0f / 10.0f;
-			draws[i].scale[1] = 1.0f / 10.0f;
+			draws[i].projection = projection;
+			draws[i].position[0] = ((i % 10) + 0.5f) / 10.0f;
+			draws[i].position[1] = ((i / 10) + 0.5f) / 10.0f;
+			draws[i].position[2] = -1.0f;  // From RH -> LH: remove -
+			draws[i].scale = 1.0f / 10.0f;
 		}
 
 		if (mesh_shading_enabled)

@@ -41,7 +41,7 @@ bool coneCull(vec4 cone, vec3 view)
 	//
 	// Run with the following to see it "from the other side".
 	// return dot(cone.xyz, view) > cone.w;
-	return dot(cone.xyz, -view) > cone.w;
+	return dot(cone.xyz, -view) > cone.w;  // From RH -> LH: remove -
 }
 
 // shared uint meshlet_count;
