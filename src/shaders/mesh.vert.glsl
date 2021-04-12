@@ -36,7 +36,8 @@ void main()
 	const vec2 uv = vec2(v.tu, v.tv);
 
 	// gl_Position = vec4(position * vec3(1, 1, 0.5) + vec3(0, 0, 0.5), 1.0);
-	gl_Position = mesh_draw.projection * vec4(position * mesh_draw.scale + mesh_draw.position, 1.0);
+	gl_Position = mesh_draw.projection *
+			vec4(rotateVecByQuat(position, mesh_draw.orientation) * mesh_draw.scale + mesh_draw.position, 1.0);
 
 	color = vec4(normal * 0.5 + vec3(0.5), 1.0);
 }

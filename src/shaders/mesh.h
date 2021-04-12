@@ -14,12 +14,12 @@
 struct Vertex
 {
 	float vx, vy, vz;
-	//float16_t vx, vy, vz, vw;
+	// float16_t vx, vy, vz, vw;
 	// float nx, ny, nz;
 #if USE_UNPACK
 	uint n_packed;
 #else
-	uint8_t nx, ny, nz, nw;     // Could be encoded in just nx, ny.
+	uint8_t nx, ny, nz, nw;  // Could be encoded in just nx, ny.
 #endif
 	// float tu, tv;
 	float16_t tu, tv;
@@ -41,3 +41,8 @@ struct MeshDraw
 	float scale;
 	vec4 orientation;
 };
+
+vec3 rotateVecByQuat(vec3 v, vec4 q)
+{
+	return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v);
+}

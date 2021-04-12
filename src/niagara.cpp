@@ -14,6 +14,7 @@
 #include <GLFW/glfw3native.h>
 
 #include <glm/ext/quaternion_float.hpp>
+#include <glm/ext/quaternion_transform.hpp>
 #include <glm/mat4x4.hpp>
 #include <glm/vec4.hpp>
 
@@ -708,6 +709,22 @@ int main(int argc, char* argv[])
 	double frame_avg_cpu = 0.0;
 	double frame_avg_gpu = 0.0;
 
+
+	size_t draw_count = 3000;
+	std::vector<MeshDraw> draws(draw_count);
+	for (uint32_t i = 0; i < draw_count; ++i)
+	{
+		draws[i].position[0] = (float(rand()) / RAND_MAX) * 40.0f - 20.0f;
+		draws[i].position[1] = (float(rand()) / RAND_MAX) * 40.0f - 20.0f;
+		draws[i].position[2] = (float(rand()) / RAND_MAX) * 40.0f - 20.0f;
+		draws[i].scale = float(rand()) / RAND_MAX * 2.9f + 0.1f;
+
+		const glm::vec3 axis(float(rand()) / RAND_MAX * 2.0f - 1.0f, float(rand()) / RAND_MAX * 2.0f - 1.0f,
+				float(rand()) / RAND_MAX * 2.0f - 1.0f);
+		const float angle = glm::radians(float(rand()) / RAND_MAX * 90.0f);
+		draws[i].orientation = glm::rotate(glm::quat(1.0f, 0.0f, 0.0f, 0.0f), angle, axis);
+	}
+
 	while (!glfwWindowShouldClose(window))
 	{
 		const double frame_begin_cpu = glfwGetTime() * 1000.0;
@@ -784,16 +801,9 @@ int main(int argc, char* argv[])
 
 		const glm::mat4 projection = ReverseInfiniteProjectionRightHandedWithoutEpsilon(
 				glm::radians(70.0f), float(swapchain.width) / float(swapchain.height), 0.01f);
-
-		size_t draw_count = 100;
-		std::vector<MeshDraw> draws(draw_count);
 		for (uint32_t i = 0; i < draw_count; ++i)
 		{
 			draws[i].projection = projection;
-			draws[i].position[0] = ((i % 10) + 0.5f) / 10.0f;
-			draws[i].position[1] = ((i / 10) + 0.5f) / 10.0f;
-			draws[i].position[2] = -1.0f;  // From RH -> LH: remove -
-			draws[i].scale = 1.0f / 10.0f;
 		}
 
 		if (mesh_shading_enabled)
