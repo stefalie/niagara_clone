@@ -10,18 +10,22 @@ struct Shader
 	bool uses_push_constants;
 };
 
+struct Program
+{
+	VkDescriptorSetLayout descriptor_set_layout;
+	VkPipelineLayout pipeline_layout;
+	VkDescriptorUpdateTemplate descriptor_update_template;
+	VkShaderStageFlags push_constant_stages;
+};
+
 bool LoadShader(Shader& shader, VkDevice device, const char* path);
 void DestroyShader(Shader& shader, VkDevice device);
 
 using Shaders = std::initializer_list<const Shader*>;
 // TODO: Should Shaders be passed as value or reference?
 
-VkDescriptorSetLayout CreateDescriptorSetLayout(VkDevice device, Shaders shaders);
-
-VkPipelineLayout CreatePipelineLayout(VkDevice device, VkDescriptorSetLayout set_layout, Shaders shaders, size_t push_constant_size);
-
-VkDescriptorUpdateTemplate CreateUpdateTemplate(VkDevice device, VkPipelineBindPoint bind_point,
-		VkDescriptorSetLayout set_layout, VkPipelineLayout pipeline_layout, Shaders shaders);
+Program CreateProgram(VkDevice device, VkPipelineBindPoint bind_point, Shaders shaders, size_t push_constant_size);
+void DestroyProgram(VkDevice device, Program& program);
 
 VkPipeline CreateGraphicsPipeline(VkDevice device, VkPipelineCache pipeline_cache, VkRenderPass render_pass,
 		VkPipelineLayout layout, Shaders shaders);

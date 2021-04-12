@@ -82,8 +82,8 @@ struct Mesh
 
 #define VSYNC 0
 
-bool rtx_supported = false;
-bool rtx_enabled = false;
+bool mesh_shading_supported = false;
+bool mesh_shading_enabled = false;
 
 static bool LoadMesh(Mesh& result, const char* path)
 {
@@ -413,7 +413,7 @@ void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
 	}
 	else if (key == GLFW_KEY_SPACE && action == GLFW_PRESS)
 	{
-		rtx_enabled = (!rtx_enabled) && rtx_supported;
+		mesh_shading_enabled = (!mesh_shading_enabled) && mesh_shading_supported;
 	}
 }
 
@@ -450,16 +450,16 @@ int main(int argc, char* argv[])
 	VK_CHECK(vkEnumerateDeviceExtensionProperties(physical_device, nullptr, &extension_count, nullptr));
 	std::vector<VkExtensionProperties> extensions(extension_count);
 	VK_CHECK(vkEnumerateDeviceExtensionProperties(physical_device, nullptr, &extension_count, extensions.data()));
-	rtx_supported = false;
+	mesh_shading_supported = false;
 	for (const auto& ext : extensions)
 	{
 		if (strcmp(ext.extensionName, "VK_NV_mesh_shader") == 0)
 		{
-			rtx_supported = true;
+			mesh_shading_supported = true;
 			break;
 		}
 	}
-	rtx_enabled = rtx_supported;
+	mesh_shading_enabled = mesh_shading_supported;
 
 	VkPhysicalDeviceProperties physical_device_props = {};
 	vkGetPhysicalDeviceProperties(physical_device, &physical_device_props);
@@ -470,7 +470,7 @@ int main(int argc, char* argv[])
 	const uint32_t family_index = GetGraphicsFamilyIndex(physical_device);
 	assert(family_index != VK_QUEUE_FAMILY_IGNORED);
 
-	VkDevice device = CreateDevice(instance, physical_device, family_index, rtx_supported);
+	VkDevice device = CreateDevice(instance, physical_device, family_index, mesh_shading_supported);
 	assert(device);
 
 	volkLoadDevice(device);
@@ -527,7 +527,7 @@ int main(int argc, char* argv[])
 
 	Shader meshlet_mesh = {};
 	Shader meshlet_task = {};
-	if (rtx_supported)
+	if (mesh_shading_supported)
 	{
 		bool rc;
 		rc = LoadShader(meshlet_mesh, device, "meshlet.mesh.spv");
@@ -545,36 +545,24 @@ int main(int argc, char* argv[])
 		assert(rc);
 	}
 
-	// TODO: Critical for perf.
 	VkPipelineCache pipeline_cache = VK_NULL_HANDLE;
 
 	Shaders mesh_shaders = { &mesh_vert, &mesh_frag };
 	Shaders meshlet_shaders = { &meshlet_task, &meshlet_mesh, &mesh_frag };
 
-	VkDescriptorSetLayout set_layout = CreateDescriptorSetLayout(device, mesh_shaders);
-	assert(set_layout);
-	VkPipelineLayout mesh_pipeline_layout = CreatePipelineLayout(device, set_layout, mesh_shaders, sizeof(MeshDraw));
-	VkDescriptorUpdateTemplate mesh_update_template = CreateUpdateTemplate(
-			device, VK_PIPELINE_BIND_POINT_GRAPHICS, set_layout, mesh_pipeline_layout, mesh_shaders);
+	Program mesh_program = CreateProgram(device, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh_shaders, sizeof(MeshDraw));
 	VkPipeline mesh_pipeline =
-			CreateGraphicsPipeline(device, pipeline_cache, render_pass, mesh_pipeline_layout, mesh_shaders);
+			CreateGraphicsPipeline(device, pipeline_cache, render_pass, mesh_program.pipeline_layout, mesh_shaders);
 	assert(mesh_pipeline);
 
-	// TODO: Put set and pipeline layout into common struct
-	VkDescriptorSetLayout set_layout_rtx = VK_NULL_HANDLE;
-	VkPipelineLayout mesh_pipeline_layout_rtx = VK_NULL_HANDLE;
-	VkDescriptorUpdateTemplate mesh_update_template_rtx = VK_NULL_HANDLE;
-	VkPipeline mesh_pipeline_rtx = VK_NULL_HANDLE;
-	if (rtx_supported)
+	Program meshlet_program = {};
+	VkPipeline meshlet_pipeline = VK_NULL_HANDLE;
+	if (mesh_shading_supported)
 	{
-		set_layout_rtx = CreateDescriptorSetLayout(device, meshlet_shaders);
-		assert(set_layout_rtx);
-		mesh_pipeline_layout_rtx = CreatePipelineLayout(device, set_layout_rtx, meshlet_shaders, sizeof(MeshDraw));
-		mesh_update_template_rtx = CreateUpdateTemplate(
-				device, VK_PIPELINE_BIND_POINT_GRAPHICS, set_layout_rtx, mesh_pipeline_layout_rtx, meshlet_shaders);
-		mesh_pipeline_rtx =
-				CreateGraphicsPipeline(device, pipeline_cache, render_pass, mesh_pipeline_layout_rtx, meshlet_shaders);
-		assert(mesh_pipeline_rtx);
+		meshlet_program = CreateProgram(device, VK_PIPELINE_BIND_POINT_GRAPHICS, meshlet_shaders, sizeof(MeshDraw));
+		meshlet_pipeline = CreateGraphicsPipeline(
+				device, pipeline_cache, render_pass, meshlet_program.pipeline_layout, meshlet_shaders);
+		assert(meshlet_pipeline);
 	}
 
 	VkCommandPool cmd_buf_pool = CreateCommandBufferPool(device, family_index);
@@ -595,7 +583,7 @@ int main(int argc, char* argv[])
 	const bool mesh_rc = LoadMesh(mesh, argv[1]);
 	assert(mesh_rc);
 
-	if (rtx_supported)
+	if (mesh_shading_supported)
 	{
 		BuildMeshlets(mesh);
 	}
@@ -612,7 +600,7 @@ int main(int argc, char* argv[])
 			VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 	Buffer meshlet_buffer = {};
 	Buffer meshlet_data_buffer = {};
-	if (rtx_supported)
+	if (mesh_shading_supported)
 	{
 		CreateBuffer(meshlet_buffer, device, memory_properties, 128 * 1024 * 1024,
 				VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
@@ -628,7 +616,7 @@ int main(int argc, char* argv[])
 	assert(index_buffer.size >= mesh.indices.size() * sizeof(uint32_t));
 	UploadBuffer(device, cmd_buf_pool, cmd_buf, queue, index_buffer, scratch_buffer, mesh.indices.data(),
 			mesh.indices.size() * sizeof(mesh.indices[0]));
-	if (rtx_supported)
+	if (mesh_shading_supported)
 	{
 		assert(meshlet_buffer.size >= mesh.meshlets.size() * sizeof(Meshlet));
 		UploadBuffer(device, cmd_buf_pool, cmd_buf, queue, meshlet_buffer, scratch_buffer, mesh.meshlets.data(),
@@ -718,9 +706,9 @@ int main(int argc, char* argv[])
 			draws[i].scale[1] = 1.0f / 10.0f;
 		}
 
-		if (rtx_enabled)
+		if (mesh_shading_enabled)
 		{
-			vkCmdBindPipeline(cmd_buf, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh_pipeline_rtx);
+			vkCmdBindPipeline(cmd_buf, VK_PIPELINE_BIND_POINT_GRAPHICS, meshlet_pipeline);
 
 			// VkDescriptorBufferInfo vb_info = {};
 			// vb_info.buffer = vertex_buffer.buffer;
@@ -748,7 +736,7 @@ int main(int argc, char* argv[])
 			// descriptors[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 			// descriptors[1].pBufferInfo = &mb_info;
 			//
-			// vkCmdPushDescriptorSetKHR(cmd_buf, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh_pipeline_layout_rtx, 0,
+			// vkCmdPushDescriptorSetKHR(cmd_buf, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh_pipeline_layout, 0,
 			//		ARRAYSIZE(descriptors), descriptors);
 
 			DescriptorInfo descriptors[] = {
@@ -756,8 +744,8 @@ int main(int argc, char* argv[])
 				meshlet_buffer.buffer,
 				meshlet_data_buffer.buffer,
 			};
-			vkCmdPushDescriptorSetWithTemplateKHR(
-					cmd_buf, mesh_update_template_rtx, mesh_pipeline_layout_rtx, 0, descriptors);
+			vkCmdPushDescriptorSetWithTemplateKHR(cmd_buf, meshlet_program.descriptor_update_template,
+					meshlet_program.pipeline_layout, 0, descriptors);
 
 
 			for (const auto& draw : draws)
@@ -765,8 +753,8 @@ int main(int argc, char* argv[])
 				// Without task shader:
 				// vkCmdDrawMeshTasksNV(cmd_buf, uint32_t(mesh.meshlets.size()), 0);
 
-				vkCmdPushConstants(
-						cmd_buf, mesh_pipeline_layout_rtx, VK_SHADER_STAGE_MESH_BIT_NV, 0, sizeof(draw), &draw);
+				vkCmdPushConstants(cmd_buf, meshlet_program.pipeline_layout,
+						meshlet_program.push_constant_stages, 0, sizeof(draw), &draw);
 				vkCmdDrawMeshTasksNV(cmd_buf, uint32_t(mesh.meshlets.size()) / 32, 0);
 			}
 		}
@@ -791,12 +779,14 @@ int main(int argc, char* argv[])
 			//		cmd_buf, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh_pipeline_layout, 0, 1, descriptors);
 
 			DescriptorInfo descriptors[] = { vertex_buffer.buffer };
-			vkCmdPushDescriptorSetWithTemplateKHR(cmd_buf, mesh_update_template, mesh_pipeline_layout, 0, descriptors);
+			vkCmdPushDescriptorSetWithTemplateKHR(
+					cmd_buf, mesh_program.descriptor_update_template, mesh_program.pipeline_layout, 0, descriptors);
 
 			vkCmdBindIndexBuffer(cmd_buf, index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
 			for (const auto& draw : draws)
 			{
-				vkCmdPushConstants(cmd_buf, mesh_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(draw), &draw);
+				vkCmdPushConstants(cmd_buf, mesh_program.pipeline_layout, mesh_program.push_constant_stages, 0,
+						sizeof(draw), &draw);
 				vkCmdDrawIndexed(cmd_buf, uint32_t(mesh.indices.size()), 1, 0, 0, 0);
 			}
 		}
@@ -866,7 +856,7 @@ int main(int argc, char* argv[])
 
 			char title[256];
 			sprintf(title, "%s; CPU: %.1f ms; wait %.2f ms; GPU: %.3f ms; triangles %d; meshlets %d; %.2fB tris/s",
-					rtx_enabled ? "RTX" : "non-RTX", frame_avg_cpu, (wait_end - wait_begin), frame_avg_gpu,
+					mesh_shading_enabled ? "RTX" : "non-RTX", frame_avg_cpu, (wait_end - wait_begin), frame_avg_gpu,
 					(int)(mesh.indices.size() / 3), (int)(mesh.meshlets.size()), tris_per_sec * 1e-9f);
 			glfwSetWindowTitle(window, title);
 		}
@@ -874,7 +864,7 @@ int main(int argc, char* argv[])
 
 	VK_CHECK(vkDeviceWaitIdle(device));
 
-	if (rtx_supported)
+	if (mesh_shading_supported)
 	{
 		DestroyBuffer(meshlet_buffer, device);
 		DestroyBuffer(meshlet_data_buffer, device);
@@ -886,16 +876,12 @@ int main(int argc, char* argv[])
 	vkDestroyCommandPool(device, cmd_buf_pool, nullptr);
 
 	vkDestroyPipeline(device, mesh_pipeline, nullptr);
-	vkDestroyPipelineLayout(device, mesh_pipeline_layout, nullptr);
-	vkDestroyDescriptorUpdateTemplate(device, mesh_update_template, nullptr);
-	vkDestroyDescriptorSetLayout(device, set_layout, nullptr);
+	DestroyProgram(device, mesh_program);
 
-	if (rtx_supported)
+	if (mesh_shading_supported)
 	{
-		vkDestroyPipeline(device, mesh_pipeline_rtx, nullptr);
-		vkDestroyPipelineLayout(device, mesh_pipeline_layout_rtx, nullptr);
-		vkDestroyDescriptorUpdateTemplate(device, mesh_update_template_rtx, nullptr);
-		vkDestroyDescriptorSetLayout(device, set_layout_rtx, nullptr);
+		vkDestroyPipeline(device, meshlet_pipeline, nullptr);
+		DestroyProgram(device, meshlet_program);
 	}
 
 	// vkDestroyPipelineCache(device, pipeline_cache, nullptr);
@@ -903,7 +889,7 @@ int main(int argc, char* argv[])
 	DestroyShader(mesh_frag, device);
 	DestroyShader(mesh_vert, device);
 
-	if (rtx_supported)
+	if (mesh_shading_supported)
 	{
 		DestroyShader(meshlet_mesh, device);
 		DestroyShader(meshlet_task, device);

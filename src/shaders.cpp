@@ -159,7 +159,7 @@ void DestroyShader(Shader& shader, VkDevice device)
 	vkDestroyShaderModule(device, shader.module, nullptr);
 }
 
-VkDescriptorSetLayout CreateDescriptorSetLayout(VkDevice device, Shaders shaders)
+static VkDescriptorSetLayout CreateDescriptorSetLayout(VkDevice device, Shaders shaders)
 {
 	std::vector<VkDescriptorSetLayoutBinding> set_layout_bindings;
 
@@ -202,7 +202,8 @@ VkDescriptorSetLayout CreateDescriptorSetLayout(VkDevice device, Shaders shaders
 	return set_layout;
 }
 
-VkPipelineLayout CreatePipelineLayout(VkDevice device, VkDescriptorSetLayout set_layout, Shaders shaders, size_t push_constant_size)
+static VkPipelineLayout CreatePipelineLayout(VkDevice device, VkDescriptorSetLayout set_layout,
+		VkShaderStageFlags push_constant_stages, size_t push_constant_size)
 {
 	VkPipelineLayoutCreateInfo layout_create_info = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
 	layout_create_info.setLayoutCount = 1;
@@ -210,13 +211,7 @@ VkPipelineLayout CreatePipelineLayout(VkDevice device, VkDescriptorSetLayout set
 	if (push_constant_size > 0)
 	{
 		VkPushConstantRange range = {};
-		for (const Shader* shader : shaders)
-		{
-			if (shader->uses_push_constants)
-			{
-				range.stageFlags |= shader->stage;
-			}
-		}
+		range.stageFlags = push_constant_stages;
 		range.size = uint32_t(push_constant_size);
 		layout_create_info.pushConstantRangeCount = 1;
 		layout_create_info.pPushConstantRanges = &range;
@@ -228,7 +223,7 @@ VkPipelineLayout CreatePipelineLayout(VkDevice device, VkDescriptorSetLayout set
 	return layout;
 }
 
-VkDescriptorUpdateTemplate CreateUpdateTemplate(VkDevice device, VkPipelineBindPoint bind_point,
+static VkDescriptorUpdateTemplate CreateUpdateTemplate(VkDevice device, VkPipelineBindPoint bind_point,
 		VkDescriptorSetLayout set_layout, VkPipelineLayout pipeline_layout, Shaders shaders)
 {
 	assert(device);
@@ -271,6 +266,39 @@ VkDescriptorUpdateTemplate CreateUpdateTemplate(VkDevice device, VkPipelineBindP
 	VK_CHECK(vkCreateDescriptorUpdateTemplate(device, &template_create_info, nullptr, &update_template));
 
 	return update_template;
+}
+
+Program CreateProgram(VkDevice device, VkPipelineBindPoint bind_point, Shaders shaders, size_t push_constant_size)
+{
+	VkShaderStageFlags push_constant_stages = 0;
+	for (const Shader* shader : shaders)
+	{
+		if (shader->uses_push_constants)
+		{
+			push_constant_stages |= shader->stage;
+		}
+	}
+
+	Program program = {};
+	program.descriptor_set_layout = CreateDescriptorSetLayout(device, shaders);
+	assert(program.descriptor_set_layout);
+	program.pipeline_layout = CreatePipelineLayout(
+			device, program.descriptor_set_layout, push_constant_stages, push_constant_size);
+	assert(program.pipeline_layout);
+	program.descriptor_update_template =
+			CreateUpdateTemplate(device, bind_point, program.descriptor_set_layout, program.pipeline_layout, shaders);
+	assert(program.descriptor_update_template);
+	program.push_constant_stages = push_constant_stages;
+
+	return program;
+}
+
+void DestroyProgram(VkDevice device, Program& program)
+{
+	vkDestroyDescriptorUpdateTemplate(device, program.descriptor_update_template, nullptr);
+	vkDestroyPipelineLayout(device, program.pipeline_layout, nullptr);
+	vkDestroyDescriptorSetLayout(device, program.descriptor_set_layout, nullptr);
+	program = {};
 }
 
 VkPipeline CreateGraphicsPipeline(VkDevice device, VkPipelineCache pipeline_cache, VkRenderPass render_pass,
