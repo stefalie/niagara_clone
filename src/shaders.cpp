@@ -337,7 +337,7 @@ VkPipeline CreateGraphicsPipeline(VkDevice device, VkPipelineCache pipeline_cach
 	raster_state.polygonMode = VK_POLYGON_MODE_FILL;
 	// TODO: Count on 0 being ok for all this.
 	raster_state.cullMode = VK_CULL_MODE_BACK_BIT;
-	// raster_state.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+	//raster_state.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 	// raster_state.frontFace = VK_FRONT_FACE_CLOCKWISE;
 	// raster_state.depthBiasEnable;
 	// raster_state.depthBiasConstantFactor;
@@ -356,9 +356,9 @@ VkPipeline CreateGraphicsPipeline(VkDevice device, VkPipelineCache pipeline_cach
 	VkPipelineDepthStencilStateCreateInfo depth_stencil = {
 		VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO
 	};
-	// depth_stencil.depthTestEnable = VK_TRUE;
-	// depth_stencil.depthWriteEnable;
-	// depth_stencil.depthCompareOp;
+	depth_stencil.depthTestEnable = VK_TRUE;
+	depth_stencil.depthWriteEnable = VK_TRUE;
+	depth_stencil.depthCompareOp = VK_COMPARE_OP_GREATER;
 	// depth_stencil.depthBoundsTestEnable;
 	// depth_stencil.stencilTestEnable;
 	// depth_stencil.front;

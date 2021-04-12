@@ -26,13 +26,13 @@ VkDevice CreateDevice(VkInstance instance, VkPhysicalDevice physical_device, uin
 VkSurfaceKHR CreateSurface(VkInstance instance, GLFWwindow* window);
 VkFormat GetSwapchainFormat(VkPhysicalDevice physical_device, VkSurfaceKHR surface);
 VkSemaphore CreateSemaphore(VkDevice device);
-VkRenderPass CreateRenderPass(VkDevice device, VkFormat format);
-VkFramebuffer
-CreateFrameBuffer(VkDevice device, VkRenderPass render_pass, VkImageView image_view, uint32_t width, uint32_t height);
-VkImageView CreateImageView(VkDevice device, VkImage image, VkFormat format);
+VkRenderPass CreateRenderPass(VkDevice device, VkFormat color_format, VkFormat depth_format);
+VkFramebuffer CreateFrameBuffer(VkDevice device, VkRenderPass render_pass, VkImageView color_view,
+		VkImageView depth_view, uint32_t width, uint32_t height);
+VkImageView CreateImageView(VkDevice device, VkImage image, VkFormat format, uint32_t mip_level, uint32_t level_count);
 VkCommandPool CreateCommandBufferPool(VkDevice device, uint32_t family_index);
 VkImageMemoryBarrier ImageBarrier(VkImage image, VkAccessFlags src_access_mask, VkAccessFlags dst_access_mask,
-		VkImageLayout old_layout, VkImageLayout new_layout);
+		VkImageLayout old_layout, VkImageLayout new_layout, VkImageAspectFlags aspect_mask);
 VkBufferMemoryBarrier BufferBarrier(VkBuffer buffer, VkAccessFlags src_access_mask, VkAccessFlags dst_access_mask);
 
 struct Vertex
@@ -366,13 +366,65 @@ void DestroyBuffer(const Buffer& buffer, VkDevice device)
 	vkDestroyBuffer(device, buffer.buffer, nullptr);
 }
 
+struct Image
+{
+	VkImage image;
+	VkImageView image_view;
+	VkDeviceMemory memory;
+};
+
+Image CreateImage(VkDevice device, const VkPhysicalDeviceMemoryProperties& memory_properties, uint32_t width,
+		uint32_t height, uint32_t mip_levels, VkFormat format, VkImageUsageFlags usage)
+{
+	VkImageCreateInfo img_create_info = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
+	img_create_info.imageType = VK_IMAGE_TYPE_2D;
+	img_create_info.format = format;
+	img_create_info.extent = { width, height, 1 };
+	img_create_info.mipLevels = mip_levels;
+	img_create_info.arrayLayers = 1;
+	img_create_info.samples = VK_SAMPLE_COUNT_1_BIT;
+	img_create_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+	img_create_info.usage = usage;
+	img_create_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+	VkImage image = VK_NULL_HANDLE;
+	VK_CHECK(vkCreateImage(device, &img_create_info, nullptr, &image));
+
+	VkMemoryRequirements requirements;
+	vkGetImageMemoryRequirements(device, image, &requirements);
+
+	const uint32_t memory_type_index =
+			SelectMemoryType(memory_properties, requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+	assert(memory_type_index != ~0u);
+
+	VkMemoryAllocateInfo alloc_info = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
+	alloc_info.allocationSize = requirements.size;
+	alloc_info.memoryTypeIndex = memory_type_index;
+	VkDeviceMemory memory = VK_NULL_HANDLE;
+	VK_CHECK(vkAllocateMemory(device, &alloc_info, nullptr, &memory));
+	assert(memory);
+
+	VK_CHECK(vkBindImageMemory(device, image, memory, 0));
+
+	Image result;
+	result.image = image;
+	result.image_view = CreateImageView(device, image, format, 0, mip_levels);
+	result.memory = memory;
+	return result;
+}
+
+void DestroyImage(VkDevice device, Image image)
+{
+	vkDestroyImageView(device, image.image_view, nullptr);
+	vkDestroyImage(device, image.image, nullptr);
+	vkFreeMemory(device, image.memory, nullptr);
+}
+
 struct Swapchain
 {
 	VkSwapchainKHR swapchain;
 
 	std::vector<VkImage> images;
-	std::vector<VkImageView> image_views;
-	std::vector<VkFramebuffer> framebuffers;
 
 	uint32_t width;
 	uint32_t height;
@@ -384,7 +436,7 @@ VkSwapchainKHR CreateSwapchain(VkDevice device, VkSurfaceKHR surface, VkSurfaceC
 // TODO: Make descriptor for all the inputs ...
 void CreateSwapchain(VkPhysicalDevice phsyical_device, VkDevice device, VkSurfaceKHR surface, VkFormat format,
 		uint32_t family_index, VkRenderPass render_pass, VkSwapchainKHR old_swapchain, Swapchain& result);
-void ResizeSwapchainIfNecessary(VkPhysicalDevice physical_device, VkDevice device, VkSurfaceKHR surface,
+bool ResizeSwapchainIfNecessary(VkPhysicalDevice physical_device, VkDevice device, VkSurfaceKHR surface,
 		VkFormat format, uint32_t family_index, VkRenderPass render_pass, Swapchain& result);
 void DestroySwapchain(VkDevice device, const Swapchain& swapchain);
 
@@ -514,7 +566,7 @@ int main(int argc, char* argv[])
 	vkGetDeviceQueue(device, family_index, 0, &queue);
 	assert(queue);
 
-	VkRenderPass render_pass = CreateRenderPass(device, swapchain_format);
+	VkRenderPass render_pass = CreateRenderPass(device, swapchain_format, VK_FORMAT_D32_SFLOAT);
 	assert(render_pass);
 
 	// NOTE: This is earlier here than what Arseny is doing.
@@ -625,6 +677,10 @@ int main(int argc, char* argv[])
 				mesh.meshlet_data.data(), mesh.meshlet_data.size() * sizeof(mesh.meshlet_data[0]));
 	}
 
+	Image color_target = {};
+	Image depth_target = {};
+	VkFramebuffer target_fb = VK_NULL_HANDLE;
+
 	double frame_avg_cpu = 0.0;
 	double frame_avg_gpu = 0.0;
 
@@ -634,19 +690,23 @@ int main(int argc, char* argv[])
 
 		glfwPollEvents();
 
-		ResizeSwapchainIfNecessary(
-				physical_device, device, surface, swapchain_format, family_index, render_pass, swapchain);
-		//// Let's use glfw for this for now.
-		// int curr_fb_width, curr_fb_height;
-		// glfwGetFramebufferSize(window, &curr_fb_width, &curr_fb_height);
-		// if (curr_fb_width != fb_width || curr_fb_height != fb_height)
-		//{
-		//	fb_width = curr_fb_width;
-		//	fb_height = curr_fb_height;
-		//	ResizeSwapchain(device, surface, surface_caps, swapchain_format, family_index, render_pass, fb_width,
-		// fb_height, swapchain);
-		//}
-		//// TODO: Could we just use the glfw resize callback?.
+		if (ResizeSwapchainIfNecessary(
+					physical_device, device, surface, swapchain_format, family_index, render_pass, swapchain) ||
+				!target_fb)
+		{
+			if (target_fb)
+			{
+				DestroyImage(device, color_target);
+				DestroyImage(device, depth_target);
+				vkDestroyFramebuffer(device, target_fb, nullptr);
+			}
+			color_target = CreateImage(device, memory_properties, swapchain.width, swapchain.height, 1,
+					swapchain_format, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
+			depth_target = CreateImage(device, memory_properties, swapchain.width, swapchain.height, 1,
+					VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT);
+			target_fb = CreateFrameBuffer(device, render_pass, color_target.image_view, depth_target.image_view,
+					swapchain.width, swapchain.height);
+		}
 
 		uint32_t image_index = 0;
 		VK_CHECK(vkAcquireNextImageKHR(
@@ -661,26 +721,29 @@ int main(int argc, char* argv[])
 		vkCmdResetQueryPool(cmd_buf, query_pool, 0, 128);
 		vkCmdWriteTimestamp(cmd_buf, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, query_pool, 0);
 
-		// NOTE: Likely a VKSubpassDependency could be used here instead of the barrier. This is explained in:
-		// https://themaister.net/blog/2019/08/14/yet-another-blog-explaining-vulkan-synchronization/
-		VkImageMemoryBarrier render_begin_barrier =
-				ImageBarrier(swapchain.images[image_index], 0, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-						VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-		vkCmdPipelineBarrier(cmd_buf, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-				VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 0, nullptr, 1,
-				&render_begin_barrier);
+		VkImageMemoryBarrier render_begin_barriers[] = {
+			ImageBarrier(color_target.image, 0, 0, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+					VK_IMAGE_ASPECT_COLOR_BIT),
+			ImageBarrier(depth_target.image, 0, 0, VK_IMAGE_LAYOUT_UNDEFINED,
+					VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT),
+		};
+		vkCmdPipelineBarrier(cmd_buf, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+				VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+				VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 0, nullptr, ARRAYSIZE(render_begin_barriers),
+				render_begin_barriers);
 
-		VkClearColorValue clear_color = { 48.0f / 255.0f, 10.0f / 255.0f, 36.0f / 255.0f,
-			1.0f };  // Ubuntu terminal color.
-		VkClearValue clear_value = { clear_color };
+		VkClearValue clear_values[2];
+		clear_values[0].color = { 48.0f / 255.0f, 10.0f / 255.0f, 36.0f / 255.0f, 1.0f };  // Ubuntu terminal color.
+		clear_values[1].depthStencil = { 0.0f };
 
 		VkRenderPassBeginInfo pass_begin_info = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
 		pass_begin_info.renderPass = render_pass;
-		pass_begin_info.framebuffer = swapchain.framebuffers[image_index];
+		// pass_begin_info.framebuffer = swapchain.framebuffers[image_index];
+		pass_begin_info.framebuffer = target_fb;
 		pass_begin_info.renderArea.extent.width = swapchain.width;
 		pass_begin_info.renderArea.extent.height = swapchain.height;
-		pass_begin_info.clearValueCount = 1;
-		pass_begin_info.pClearValues = &clear_value;
+		pass_begin_info.clearValueCount = ARRAYSIZE(clear_values);
+		pass_begin_info.pClearValues = clear_values;
 
 		vkCmdBeginRenderPass(cmd_buf, &pass_begin_info, VK_SUBPASS_CONTENTS_INLINE);
 
@@ -690,7 +753,6 @@ int main(int argc, char* argv[])
 
 		vkCmdSetViewport(cmd_buf, 0, 1, &viewport);
 		vkCmdSetScissor(cmd_buf, 0, 1, &scissor);
-
 
 		// Descriptor set binding is a good match for AMD, but not for NVidia (and likely neither for Intel).
 		// We won't use descriptor set binding, we'll use an extension exposed by Intel and NVidia only.
@@ -753,8 +815,8 @@ int main(int argc, char* argv[])
 				// Without task shader:
 				// vkCmdDrawMeshTasksNV(cmd_buf, uint32_t(mesh.meshlets.size()), 0);
 
-				vkCmdPushConstants(cmd_buf, meshlet_program.pipeline_layout,
-						meshlet_program.push_constant_stages, 0, sizeof(draw), &draw);
+				vkCmdPushConstants(cmd_buf, meshlet_program.pipeline_layout, meshlet_program.push_constant_stages, 0,
+						sizeof(draw), &draw);
 				vkCmdDrawMeshTasksNV(cmd_buf, uint32_t(mesh.meshlets.size()) / 32, 0);
 			}
 		}
@@ -791,28 +853,38 @@ int main(int argc, char* argv[])
 			}
 		}
 
-
 		vkCmdEndRenderPass(cmd_buf);
 
-		// VkClearColorValue color = { 1, 0, 1, 1 };
-		// VkImageSubresourceRange range = {};
-		// range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-		// range.levelCount = 1;
-		// range.layerCount = 1;
-		// vkCmdClearColorImage(cmd_buf, swapchain_images[image_index], VK_IMAGE_LAYOUT_GENERAL, &color, 1, &range);
+		// NOTE: Likely a VKSubpassDependency could be used here instead of the barrier. This is explained in:
+		// https://themaister.net/blog/2019/08/14/yet-another-blog-explaining-vulkan-synchronization/
+		VkImageMemoryBarrier copy_barriers[] = {
+			ImageBarrier(swapchain.images[image_index], 0, VK_ACCESS_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
+					VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT),
+			ImageBarrier(color_target.image, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+					VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+					VK_IMAGE_ASPECT_COLOR_BIT),
+		};
+		vkCmdPipelineBarrier(cmd_buf, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+				VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 0, nullptr, ARRAYSIZE(copy_barriers), copy_barriers);
 
-		VkImageMemoryBarrier render_end_barrier =
-				ImageBarrier(swapchain.images[image_index], VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, 0,
-						VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
-		// TODO: used to be VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT
-		vkCmdPipelineBarrier(cmd_buf, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-				VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 0, nullptr, 1,
-				&render_end_barrier);
+		VkImageCopy copy_region = {};
+		copy_region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		copy_region.srcSubresource.layerCount = 1;
+		copy_region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		copy_region.dstSubresource.layerCount = 1;
+		copy_region.extent = { swapchain.width, swapchain.height, 1 };
+		vkCmdCopyImage(cmd_buf, color_target.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapchain.images[image_index],
+				VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy_region);
+
+		VkImageMemoryBarrier present_barrier = ImageBarrier(swapchain.images[image_index], VK_ACCESS_TRANSFER_WRITE_BIT,
+				0, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_ASPECT_COLOR_BIT);
+		vkCmdPipelineBarrier(cmd_buf, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+				VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 0, nullptr, 1, &present_barrier);
 
 		vkCmdWriteTimestamp(cmd_buf, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, query_pool, 1);
 		VK_CHECK(vkEndCommandBuffer(cmd_buf));
 
-		VkPipelineStageFlags submit_stage_mask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+		VkPipelineStageFlags submit_stage_mask = VK_PIPELINE_STAGE_TRANSFER_BIT;
 
 		VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
 		submit_info.waitSemaphoreCount = 1;
@@ -863,6 +935,10 @@ int main(int argc, char* argv[])
 	}
 
 	VK_CHECK(vkDeviceWaitIdle(device));
+
+	vkDestroyFramebuffer(device, target_fb, nullptr);
+	DestroyImage(device, depth_target);
+	DestroyImage(device, color_target);
 
 	if (mesh_shading_supported)
 	{
@@ -1519,13 +1595,14 @@ VkSemaphore CreateSemaphore(VkDevice device)
 	return semaphore;
 }
 
-VkRenderPass CreateRenderPass(VkDevice device, VkFormat format)
+VkRenderPass CreateRenderPass(VkDevice device, VkFormat color_format, VkFormat depth_format)
 {
 	assert(device);
-	assert(format);
+	assert(color_format);
+	assert(depth_format);
 
-	VkAttachmentDescription attachments[1] = {};
-	attachments[0].format = format;
+	VkAttachmentDescription attachments[2] = {};
+	attachments[0].format = color_format;
 	attachments[0].samples = VK_SAMPLE_COUNT_1_BIT;
 	attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 	attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -1533,15 +1610,23 @@ VkRenderPass CreateRenderPass(VkDevice device, VkFormat format)
 	attachments[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 	attachments[0].initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 	attachments[0].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	attachments[1].format = depth_format;
+	attachments[1].samples = VK_SAMPLE_COUNT_1_BIT;
+	attachments[1].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	attachments[1].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	attachments[1].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	attachments[1].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	attachments[1].initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+	attachments[1].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
-	VkAttachmentReference attachment_ref;
-	attachment_ref.attachment = 0;  // Index into attachments for subpass.
-	attachment_ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	VkAttachmentReference color_attachment_ref = { 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+	VkAttachmentReference depth_attachment_ref = { 1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
 
 	VkSubpassDescription subpass = {};
 	subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
 	subpass.colorAttachmentCount = 1;
-	subpass.pColorAttachments = &attachment_ref;
+	subpass.pColorAttachments = &color_attachment_ref;
+	subpass.pDepthStencilAttachment = &depth_attachment_ref;
 
 	VkRenderPassCreateInfo pass_create_info = { VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
 	pass_create_info.attachmentCount = ARRAYSIZE(attachments);
@@ -1554,16 +1639,18 @@ VkRenderPass CreateRenderPass(VkDevice device, VkFormat format)
 	return render_pass;
 }
 
-VkFramebuffer
-CreateFrameBuffer(VkDevice device, VkRenderPass render_pass, VkImageView image_view, uint32_t width, uint32_t height)
+VkFramebuffer CreateFrameBuffer(VkDevice device, VkRenderPass render_pass, VkImageView color_view,
+		VkImageView depth_view, uint32_t width, uint32_t height)
 {
 	assert(device);
 	assert(render_pass);
 
+	VkImageView attachments[] = { color_view, depth_view };
+
 	VkFramebufferCreateInfo fb_create_info = { VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO };
 	fb_create_info.renderPass = render_pass;
-	fb_create_info.attachmentCount = 1;
-	fb_create_info.pAttachments = &image_view;
+	fb_create_info.attachmentCount = ARRAYSIZE(attachments);
+	fb_create_info.pAttachments = attachments;
 	fb_create_info.width = width;
 	fb_create_info.height = height;
 	fb_create_info.layers = 1;
@@ -1573,18 +1660,23 @@ CreateFrameBuffer(VkDevice device, VkRenderPass render_pass, VkImageView image_v
 	return framebuffer;
 };
 
-VkImageView CreateImageView(VkDevice device, VkImage image, VkFormat format)
+VkImageView CreateImageView(VkDevice device, VkImage image, VkFormat format, uint32_t mip_level, uint32_t level_count)
 {
 	assert(device);
 	assert(image);
 	assert(format);
 
+	VkImageAspectFlags aspect_mask =
+			(format == VK_FORMAT_D32_SFLOAT) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+
+
 	VkImageViewCreateInfo img_view_create_info = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
 	img_view_create_info.image = image;
 	img_view_create_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
 	img_view_create_info.format = format;
-	img_view_create_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-	img_view_create_info.subresourceRange.levelCount = 1;
+	img_view_create_info.subresourceRange.aspectMask = aspect_mask;
+	img_view_create_info.subresourceRange.baseMipLevel = mip_level;
+	img_view_create_info.subresourceRange.levelCount = level_count;
 	img_view_create_info.subresourceRange.layerCount = 1;
 
 	VkImageView img_view = VK_NULL_HANDLE;
@@ -1606,7 +1698,7 @@ VkCommandPool CreateCommandBufferPool(VkDevice device, uint32_t family_index)
 }
 
 VkImageMemoryBarrier ImageBarrier(VkImage image, VkAccessFlags src_access_mask, VkAccessFlags dst_access_mask,
-		VkImageLayout old_layout, VkImageLayout new_layout)
+		VkImageLayout old_layout, VkImageLayout new_layout, VkImageAspectFlags aspect_mask)
 {
 	VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
 	barrier.srcAccessMask = src_access_mask;
@@ -1616,7 +1708,7 @@ VkImageMemoryBarrier ImageBarrier(VkImage image, VkAccessFlags src_access_mask, 
 	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	barrier.image = image;
-	barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	barrier.subresourceRange.aspectMask = aspect_mask;
 	// barrier.subresourceRange.baseMipLevel;
 	barrier.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;    // NOTE: Some Android driver ignore this.
 																	  // barrier.subresourceRange.baseArrayLayer;
@@ -1661,7 +1753,9 @@ VkSwapchainKHR CreateSwapchain(VkDevice device, VkSurfaceKHR surface, VkSurfaceC
 	swapchain_create_info.imageExtent.width = width;
 	swapchain_create_info.imageExtent.height = height;
 	swapchain_create_info.imageArrayLayers = 1;
-	swapchain_create_info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+	swapchain_create_info.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+	// TODO
+	swapchain_create_info.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT /*TODO*/;
 	swapchain_create_info.queueFamilyIndexCount = 1;
 	swapchain_create_info.pQueueFamilyIndices = &family_index;
 	// TODO: There was a validation error about the preTransform.
@@ -1704,25 +1798,8 @@ void CreateSwapchain(VkPhysicalDevice physical_device, VkDevice device, VkSurfac
 	std::vector<VkImage> images(image_count);
 	VK_CHECK(vkGetSwapchainImagesKHR(device, swapchain, &image_count, images.data()));
 
-	std::vector<VkImageView> image_views(image_count);
-	for (uint32_t i = 0; i < image_count; ++i)
-	{
-		image_views[i] = CreateImageView(device, images[i], format);
-		assert(image_views[i]);
-	}
-
-	std::vector<VkFramebuffer> framebuffers(image_count);
-	for (uint32_t i = 0; i < image_count; ++i)
-	{
-		framebuffers[i] = CreateFrameBuffer(device, render_pass, image_views[i], width, height);
-		assert(framebuffers[i]);
-	}
-
-	// TODO: unnecessary copying.
 	result.swapchain = swapchain;
 	result.images = images;
-	result.image_views = image_views;
-	result.framebuffers = framebuffers;
 	result.width = width;
 	result.height = height;
 	result.image_count = image_count;
@@ -1730,7 +1807,7 @@ void CreateSwapchain(VkPhysicalDevice physical_device, VkDevice device, VkSurfac
 	// TODO: error handling?
 }
 
-void ResizeSwapchainIfNecessary(VkPhysicalDevice physical_device, VkDevice device, VkSurfaceKHR surface,
+bool ResizeSwapchainIfNecessary(VkPhysicalDevice physical_device, VkDevice device, VkSurfaceKHR surface,
 		VkFormat format, uint32_t family_index, VkRenderPass render_pass, Swapchain& result)
 {
 	// TODO: asserts
@@ -1764,20 +1841,16 @@ void ResizeSwapchainIfNecessary(VkPhysicalDevice physical_device, VkDevice devic
 		VK_CHECK(vkDeviceWaitIdle(device));
 
 		DestroySwapchain(device, old);
+
+		return true;
+	}
+	else
+	{
+		return false;
 	}
 }
 
 void DestroySwapchain(VkDevice device, const Swapchain& swapchain)
 {
-	// TODO: asserts
-
-	for (uint32_t i = 0; i < swapchain.image_count; ++i)
-	{
-		vkDestroyFramebuffer(device, swapchain.framebuffers[i], nullptr);
-	}
-	for (uint32_t i = 0; i < swapchain.image_count; ++i)
-	{
-		vkDestroyImageView(device, swapchain.image_views[i], nullptr);
-	}
 	vkDestroySwapchainKHR(device, swapchain.swapchain, nullptr);
 }
