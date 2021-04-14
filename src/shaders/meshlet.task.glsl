@@ -32,24 +32,47 @@ out taskNV task_block
 	uint meshlet_indices[32];
 };
 
-bool coneCull(vec4 cone, vec3 view)
+bool ConeCull1(vec3 cone_axis, float cone_cutoff, vec3 view)
 {
 	// NOTE: Normally view points towards the camera.
 	// Then if
-	// dot(view, cone) < cos(cone_half + 90) -> cull
-	// dot(view, cone) < (-sin(cone_half))
-	// dot(view, cone) < -sqrt(1 - cos(cone_half) * cos(cone_half))
-	// dot(view, cone) < -sqrt(1 - dp * dp)
-	// dot(-view, cone) > sqrt(1 - dp * dp)
-	// dot(view_ray_dir, cone) > sqrt(1 - dp * dp)
-	// dot(view_ray_dir, cone) > cone.w
+	// angle(view, cone_axis) > cone_half_angle + 90 -> cull
+	// dot(view, cone_axis) < cos(cone_half_angle + 90) -> cull
+	// dot(view, cone_axis) < (-sin(cone_half_angle))
+	// dot(view, cone_axis) < -sqrt(1 - cos(cone_half_angle) * cos(cone_half_angle))
+	// dot(view, cone_axis) < -sqrt(1 - dp * dp)
+	// dot(-view, cone_axis) > sqrt(1 - dp * dp)
+	// dot(view_ray_dir, cone_axis) > sqrt(1 - dp * dp)
+	// dot(view_ray_dir, cone_axis) > cone_cutoff
 	//
 	// Run with the following to see it "from the other side".
 	// return dot(cone.xyz, view) > cone.w;
-	return dot(cone.xyz, -view) > cone.w;  // From RH -> LH: remove -
+	return dot(cone_axis, -view) > cone_cutoff;  // From RH -> LH: remove -
 }
 
-// shared uint meshlet_count;
+bool ConeCull2(vec3 cone_apex, vec3 cone_axis, float cone_cutoff, vec3 camera_position)
+{
+	return dot(normalize(cone_apex - camera_position), cone_axis) >= cone_cutoff;
+}
+
+bool ConeCull3(vec3 center, float radius, vec3 cone_axis, float cone_cutoff, vec3 camera_position)
+{
+	// Compare with Figure 7 in:
+	// Olsson, Billeter, Assarsson - 2012 - Clustered Deferred and Forward Shading
+	//
+	// view = normalize(camera_position - center)
+	// angle(view, cone_axis) > cone_half_angle + 90 + view_cone_for_bounding_sphere_half_angle ->
+	// dot(view, cone_axis) < cos(cone_half_angle + 90 + view_cone_for_bounding_sphere_half_angle)
+	// dot(view, cone_axis) < -sin(cone_half_angle + view_cone_for_bounding_sphere_half_angle)
+	// dot(view, cone_axis) < -(sin(cone_half_angle) * cos(view_cone_for_bounding_sphere_half_angle) +
+	//                          cos(cone_half_angle) * sin(view_cone_for_bounding_sphere_half_angle))
+	// NOTE: here I think mesh_optimizer took a small shortcut
+	// dot(view, cone_axis) < -(sin(cone_half_angle) * 1 + 1 * sin(view_cone_for_bounding_sphere_half_angle))
+	// dot(-view, cone_axis) > sin(cone_half_angle) + sin(view_cone_for_bounding_sphere_half_angle)
+	// dot(-view, cone_axis) > sin(cone_half_angle) + radius / length(center - camera_position)
+	// dot(-view, cone_axis) > cone_cutoff + radius / length(center - camera_position)
+	return dot(center - camera_position, cone_axis) >= cone_cutoff * length(center - camera_position) + radius;
+}
 
 void main()
 {
@@ -60,7 +83,23 @@ void main()
 #if CULL
 	// TODO: Assumes subgroup size 32.
 #if BALLOT
-	const bool accept = !coneCull(meshlets[mi].cone, vec3(0, 0, 1));
+	vec3 cone_axis = vec3(
+			meshlets[mi].cone_axis[0] / 127.0, meshlets[mi].cone_axis[1] / 127.0, meshlets[mi].cone_axis[2] / 127.0);
+	cone_axis = RotateVecByQuat(cone_axis, mesh_draw.orientation);
+	// const bool accept1 = !ConeCull1(cone_axis, meshlets[mi].cone_cutoff, vec3(0, 0, 1));
+
+	// const vec3 cone_apex =
+	//		RotateVecByQuat(meshlets[mi].cone_apex, mesh_draw.orientation) * mesh_draw.scale + mesh_draw.position;
+	// const bool accept2 = !ConeCull2(cone_apex, cone_axis, meshlets[mi].cone_cutoff, vec3(0));
+
+	const vec3 center =
+			RotateVecByQuat(meshlets[mi].center, mesh_draw.orientation) * mesh_draw.scale + mesh_draw.position;
+	const float radius = meshlets[mi].radius * mesh_draw.scale;
+	const float cone_cutoff = meshlets[mi].cone_cutoff / 127.0;
+	const bool accept3 = !ConeCull3(center, radius, cone_axis, cone_cutoff, vec3(0));
+
+	const bool accept = accept3;
+
 	const uvec4 ballot = subgroupBallot(accept);
 	const uint index = subgroupBallotExclusiveBitCount(ballot);
 

@@ -27,7 +27,19 @@ struct Vertex
 
 struct Meshlet
 {
-	vec4 cone;  // Meshlet struct needs to be 16 byte aligned.
+	// For cluster back face culling we use center/radius even though it's
+	// less efficient that the version that uses the cone apex. But the
+	// center/radius representation will come in handy later or (for frustum
+	// culling I guess).
+	vec3 center;
+	float radius;
+	//vec3 cone_axis;
+	//float cone_cutoff;
+	int8_t cone_axis[3];
+	int8_t cone_cutoff;
+	//vec3 cone_apex;
+	//float padding;
+
 	uint data_offset;
 	uint8_t vertex_count;
 	uint8_t triangle_count;
@@ -42,7 +54,7 @@ struct MeshDraw
 	vec4 orientation;
 };
 
-vec3 rotateVecByQuat(vec3 v, vec4 q)
+vec3 RotateVecByQuat(vec3 v, vec4 q)
 {
 	return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v);
 }

@@ -116,7 +116,7 @@ void main()
 		const vec2 uv = vec2(v.tu, v.tv);
 
 		gl_MeshVerticesNV[i].gl_Position = mesh_draw.projection *
-				vec4(rotateVecByQuat(position, mesh_draw.orientation) * mesh_draw.scale + mesh_draw.position, 1.0);
+				vec4(RotateVecByQuat(position, mesh_draw.orientation) * mesh_draw.scale + mesh_draw.position, 1.0);
 
 		color[i] = vec4(normal * 0.5 + vec3(0.5), 1.0);
 #if DEBUG

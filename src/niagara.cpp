@@ -58,7 +58,12 @@ struct alignas(16) Global
 
 struct alignas(16) Meshlet
 {
-	float cone[4];
+	glm::vec3 center;
+	float radius;
+	int8_t cone_axis[3];
+	int8_t cone_cutoff;
+	//glm::vec3 cone_apex;
+	//float padding;
 
 	// [data_offset, (data_offset + vertex_count - 1)] stores vertex indices
 	// [(data_offset + vertex_count), (data_offset + vertex_count + index_count)] stores packed 4b meshlet indices
@@ -251,10 +256,16 @@ static void BuildMeshlets(Mesh& mesh)
 		m.vertex_count = meshlet.vertex_count;
 		m.triangle_count = meshlet.triangle_count;
 
-		m.cone[0] = bounds.cone_axis[0];
-		m.cone[1] = bounds.cone_axis[1];
-		m.cone[2] = bounds.cone_axis[2];
-		m.cone[3] = bounds.cone_cutoff;
+		m.center = glm::vec3(bounds.center[0], bounds.center[1], bounds.center[2]);
+		m.radius = bounds.radius;
+		//m.cone_axis = glm::vec3(bounds.cone_axis[0], bounds.cone_axis[1], bounds.cone_axis[2]);
+		//m.cone_cutoff = bounds.cone_cutoff;
+		m.cone_axis[0] = bounds.cone_axis_s8[0];
+		m.cone_axis[1] = bounds.cone_axis_s8[1];
+		m.cone_axis[2] = bounds.cone_axis_s8[2];
+		m.cone_cutoff = bounds.cone_cutoff_s8;
+		//m.cone_apex = glm::vec3(bounds.cone_apex[0], bounds.cone_apex[1], bounds.cone_apex[2]);
+		//m.padding = 0;
 
 		mesh.meshlets[i] = m;
 	}
