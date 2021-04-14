@@ -8,6 +8,6 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LocalDebuggerWorkingDirectory>$(OutputPath)</LocalDebuggerWorkingDirectory>
     <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>
-    <LocalDebuggerCommandArguments>$(SolutionDir)..\data\buddha.obj</LocalDebuggerCommandArguments>
+    <LocalDebuggerCommandArguments>$(SolutionDir)..\data\kitten.obj</LocalDebuggerCommandArguments>
   </PropertyGroup>
 </Project>

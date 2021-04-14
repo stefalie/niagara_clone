@@ -1,15 +1,21 @@
 #version 450
 
 #extension GL_GOOGLE_include_directive : require
+#extension GL_ARB_shader_draw_parameters : require
 
 #include "mesh.h"
 
 layout(push_constant) uniform PushConstants
 {
-	MeshDraw mesh_draw;
+	Globals globals;
 };
 
-layout(binding = 0) readonly buffer Vertices
+layout(binding = 0) readonly buffer Draws
+{
+	MeshDraw draws[];
+};
+
+layout(binding = 1) readonly buffer Vertices
 {
 	Vertex vertices[];
 };
@@ -18,6 +24,8 @@ layout(location = 0) out vec4 color;
 
 void main()
 {
+	const MeshDraw mesh_draw = draws[gl_DrawIDARB];
+
 	const Vertex v = vertices[gl_VertexIndex];
 	const vec3 position = vec3(v.vx, v.vy, v.vz);
 
@@ -36,7 +44,7 @@ void main()
 	const vec2 uv = vec2(v.tu, v.tv);
 
 	// gl_Position = vec4(position * vec3(1, 1, 0.5) + vec3(0, 0, 0.5), 1.0);
-	gl_Position = mesh_draw.projection *
+	gl_Position = globals.projection *
 			vec4(RotateVecByQuat(position, mesh_draw.orientation) * mesh_draw.scale + mesh_draw.position, 1.0);
 
 	color = vec4(normal * 0.5 + vec3(0.5), 1.0);

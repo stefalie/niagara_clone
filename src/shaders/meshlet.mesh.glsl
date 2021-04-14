@@ -2,6 +2,7 @@
 
 #extension GL_NV_mesh_shader : require
 #extension GL_GOOGLE_include_directive : require
+#extension GL_ARB_shader_draw_parameters : require
 
 #include "mesh.h"
 
@@ -13,10 +14,15 @@ layout(triangles, max_vertices = 64, max_primitives = 124) out;
 
 layout(push_constant) uniform PushConstants
 {
-	MeshDraw mesh_draw;
+	Globals globals;
 };
 
-layout(binding = 0) readonly buffer Vertices
+layout(binding = 0) readonly buffer Draws
+{
+	MeshDraw draws[];
+};
+
+layout(binding = 3) readonly buffer Vertices
 {
 	Vertex vertices[];
 };
@@ -95,6 +101,8 @@ void main()
 	const uint vertex_offset = data_offset;
 	const uint index_offset = data_offset + vertex_count;
 
+	const MeshDraw mesh_draw = draws[gl_DrawIDARB];
+
 #if DEBUG
 	const uint meshlet_hash = hash(mi);
 	const vec3 meshlet_color =
@@ -115,7 +123,7 @@ void main()
 #endif
 		const vec2 uv = vec2(v.tu, v.tv);
 
-		gl_MeshVerticesNV[i].gl_Position = mesh_draw.projection *
+		gl_MeshVerticesNV[i].gl_Position = globals.projection *
 				vec4(RotateVecByQuat(position, mesh_draw.orientation) * mesh_draw.scale + mesh_draw.position, 1.0);
 
 		color[i] = vec4(normal * 0.5 + vec3(0.5), 1.0);

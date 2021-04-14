@@ -45,13 +45,18 @@ struct Meshlet
 	uint8_t triangle_count;
 };
 
+struct Globals
+{
+	mat4 projection;
+};
 
 struct MeshDraw
 {
-	mat4 projection;
 	vec3 position;
 	float scale;
 	vec4 orientation;
+
+	uint command_data[7];
 };
 
 vec3 RotateVecByQuat(vec3 v, vec4 q)

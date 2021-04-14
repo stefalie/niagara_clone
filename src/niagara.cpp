@@ -51,19 +51,14 @@ struct Vertex
 	uint16_t tu, tv;
 };
 
-struct alignas(16) Global
-{
-	glm::mat4 projection;
-};
-
 struct alignas(16) Meshlet
 {
 	glm::vec3 center;
 	float radius;
 	int8_t cone_axis[3];
 	int8_t cone_cutoff;
-	//glm::vec3 cone_apex;
-	//float padding;
+	// glm::vec3 cone_apex;
+	// float padding;
 
 	// [data_offset, (data_offset + vertex_count - 1)] stores vertex indices
 	// [(data_offset + vertex_count), (data_offset + vertex_count + index_count)] stores packed 4b meshlet indices
@@ -81,12 +76,27 @@ struct alignas(16) Meshlet
 	uint8_t triangle_count;
 };
 
-struct alignas(16) MeshDraw
+struct alignas(16) Globals
 {
 	glm::mat4 projection;
+};
+
+struct alignas(16) MeshDraw
+{
 	glm::vec3 position;
 	float scale;
 	glm::quat orientation;
+
+	union
+	{
+		uint32_t command_data[7];
+
+		struct
+		{
+			VkDrawIndexedIndirectCommand command_indirect;         // 5 u32s
+			VkDrawMeshTasksIndirectCommandNV command_indirect_ms;  // 2 u32s
+		};
+	};
 };
 
 struct Mesh
@@ -258,14 +268,14 @@ static void BuildMeshlets(Mesh& mesh)
 
 		m.center = glm::vec3(bounds.center[0], bounds.center[1], bounds.center[2]);
 		m.radius = bounds.radius;
-		//m.cone_axis = glm::vec3(bounds.cone_axis[0], bounds.cone_axis[1], bounds.cone_axis[2]);
-		//m.cone_cutoff = bounds.cone_cutoff;
+		// m.cone_axis = glm::vec3(bounds.cone_axis[0], bounds.cone_axis[1], bounds.cone_axis[2]);
+		// m.cone_cutoff = bounds.cone_cutoff;
 		m.cone_axis[0] = bounds.cone_axis_s8[0];
 		m.cone_axis[1] = bounds.cone_axis_s8[1];
 		m.cone_axis[2] = bounds.cone_axis_s8[2];
 		m.cone_cutoff = bounds.cone_cutoff_s8;
-		//m.cone_apex = glm::vec3(bounds.cone_apex[0], bounds.cone_apex[1], bounds.cone_apex[2]);
-		//m.padding = 0;
+		// m.cone_apex = glm::vec3(bounds.cone_apex[0], bounds.cone_apex[1], bounds.cone_apex[2]);
+		// m.padding = 0;
 
 		mesh.meshlets[i] = m;
 	}
@@ -638,7 +648,7 @@ int main(int argc, char* argv[])
 	Shaders mesh_shaders = { &mesh_vert, &mesh_frag };
 	Shaders meshlet_shaders = { &meshlet_task, &meshlet_mesh, &mesh_frag };
 
-	Program mesh_program = CreateProgram(device, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh_shaders, sizeof(MeshDraw));
+	Program mesh_program = CreateProgram(device, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh_shaders, sizeof(Globals));
 	VkPipeline mesh_pipeline =
 			CreateGraphicsPipeline(device, pipeline_cache, render_pass, mesh_program.pipeline_layout, mesh_shaders);
 	assert(mesh_pipeline);
@@ -647,7 +657,7 @@ int main(int argc, char* argv[])
 	VkPipeline meshlet_pipeline = VK_NULL_HANDLE;
 	if (mesh_shading_supported)
 	{
-		meshlet_program = CreateProgram(device, VK_PIPELINE_BIND_POINT_GRAPHICS, meshlet_shaders, sizeof(MeshDraw));
+		meshlet_program = CreateProgram(device, VK_PIPELINE_BIND_POINT_GRAPHICS, meshlet_shaders, sizeof(Globals));
 		meshlet_pipeline = CreateGraphicsPipeline(
 				device, pipeline_cache, render_pass, meshlet_program.pipeline_layout, meshlet_shaders);
 		assert(meshlet_pipeline);
@@ -713,14 +723,6 @@ int main(int argc, char* argv[])
 				mesh.meshlet_data.data(), mesh.meshlet_data.size() * sizeof(mesh.meshlet_data[0]));
 	}
 
-	Image color_target = {};
-	Image depth_target = {};
-	VkFramebuffer target_fb = VK_NULL_HANDLE;
-
-	double frame_avg_cpu = 0.0;
-	double frame_avg_gpu = 0.0;
-
-
 	size_t draw_count = 3000;
 	std::vector<MeshDraw> draws(draw_count);
 	for (uint32_t i = 0; i < draw_count; ++i)
@@ -734,7 +736,27 @@ int main(int argc, char* argv[])
 				float(rand()) / RAND_MAX * 2.0f - 1.0f);
 		const float angle = glm::radians(float(rand()) / RAND_MAX * 90.0f);
 		draws[i].orientation = glm::rotate(glm::quat(1.0f, 0.0f, 0.0f, 0.0f), angle, axis);
+
+		memset(draws[i].command_data, 0, sizeof(draws[i].command_data));
+		draws[i].command_indirect.indexCount = uint32_t(mesh.indices.size());
+		draws[i].command_indirect.instanceCount = 1;
+		draws[i].command_indirect_ms.taskCount = uint32_t(mesh.meshlets.size()) / 32;
 	}
+
+	Buffer draw_buffer = {};
+	CreateBuffer(draw_buffer, device, memory_properties, 128 * 1024 * 1024,
+			VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+	UploadBuffer(device, cmd_buf_pool, cmd_buf, queue, draw_buffer, scratch_buffer, draws.data(),
+			draws.size() * sizeof(draws[0]));
+
+
+	Image color_target = {};
+	Image depth_target = {};
+	VkFramebuffer target_fb = VK_NULL_HANDLE;
+
+	double frame_avg_cpu = 0.0;
+	double frame_avg_gpu = 0.0;
 
 	while (!glfwWindowShouldClose(window))
 	{
@@ -812,94 +834,47 @@ int main(int argc, char* argv[])
 
 		const glm::mat4 projection = ReverseInfiniteProjectionRightHandedWithoutEpsilon(
 				glm::radians(70.0f), float(swapchain.width) / float(swapchain.height), 0.01f);
-		for (uint32_t i = 0; i < draw_count; ++i)
-		{
-			draws[i].projection = projection;
-		}
+
+		Globals globals = {};
+		globals.projection = projection;
 
 		if (mesh_shading_enabled)
 		{
 			vkCmdBindPipeline(cmd_buf, VK_PIPELINE_BIND_POINT_GRAPHICS, meshlet_pipeline);
 
-			// VkDescriptorBufferInfo vb_info = {};
-			// vb_info.buffer = vertex_buffer.buffer;
-			// vb_info.offset = 0;
-			// vb_info.range = vertex_buffer.size;
-			//
-			// VkDescriptorBufferInfo mb_info = {};
-			// mb_info.buffer = meshlet_buffer.buffer;
-			// mb_info.offset = 0;
-			// mb_info.range = meshlet_buffer.size;
-			//
-			//// TODO wouldn't it be better to use 1 descriptor set with 2 descriptors?
-			// VkWriteDescriptorSet descriptors[2] = {};
-			// descriptors[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;  // Why different here?
-			//// I guess we skip this because we push and don't have to allocate a set from a pool.
-			//// descriptors[0].dstSet = ?;
-			// descriptors[0].dstBinding = 0;
-			// descriptors[0].descriptorCount = 1;
-			// descriptors[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-			// descriptors[0].pBufferInfo = &vb_info;
-			//
-			// descriptors[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-			// descriptors[1].dstBinding = 1;
-			// descriptors[1].descriptorCount = 1;
-			// descriptors[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-			// descriptors[1].pBufferInfo = &mb_info;
-			//
-			// vkCmdPushDescriptorSetKHR(cmd_buf, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh_pipeline_layout, 0,
-			//		ARRAYSIZE(descriptors), descriptors);
-
 			DescriptorInfo descriptors[] = {
-				vertex_buffer.buffer,
+				draw_buffer.buffer,
 				meshlet_buffer.buffer,
 				meshlet_data_buffer.buffer,
+				vertex_buffer.buffer,
 			};
 			vkCmdPushDescriptorSetWithTemplateKHR(cmd_buf, meshlet_program.descriptor_update_template,
 					meshlet_program.pipeline_layout, 0, descriptors);
 
+			vkCmdPushConstants(cmd_buf, meshlet_program.pipeline_layout, meshlet_program.push_constant_stages, 0,
+					sizeof(globals), &globals);
 
-			for (const auto& draw : draws)
-			{
-				// Without task shader:
-				// vkCmdDrawMeshTasksNV(cmd_buf, uint32_t(mesh.meshlets.size()), 0);
-
-				vkCmdPushConstants(cmd_buf, meshlet_program.pipeline_layout, meshlet_program.push_constant_stages, 0,
-						sizeof(draw), &draw);
-				vkCmdDrawMeshTasksNV(cmd_buf, uint32_t(mesh.meshlets.size()) / 32, 0);
-			}
+			vkCmdDrawMeshTasksIndirectNV(cmd_buf, draw_buffer.buffer, offsetof(MeshDraw, command_indirect_ms),
+					uint32_t(draws.size()), sizeof(MeshDraw));
 		}
 		else
 		{
 			vkCmdBindPipeline(cmd_buf, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh_pipeline);
 
-			// VkDescriptorBufferInfo vb_info = {};
-			// vb_info.buffer = vertex_buffer.buffer;
-			// vb_info.offset = 0;
-			// vb_info.range = vertex_buffer.size;
-			//
-			// VkWriteDescriptorSet descriptors[1] = {};
-			// descriptors[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;  // Why different here?
-			//// I guess we skip this because we push and don't have to allocate a set from a pool.
-			//// descriptors[0].dstSet = ?;
-			// descriptors[0].dstBinding = 0;
-			// descriptors[0].descriptorCount = 1;
-			// descriptors[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-			// descriptors[0].pBufferInfo = &vb_info;
-			// vkCmdPushDescriptorSetKHR(
-			//		cmd_buf, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh_pipeline_layout, 0, 1, descriptors);
-
-			DescriptorInfo descriptors[] = { vertex_buffer.buffer };
+			DescriptorInfo descriptors[] = {
+				draw_buffer.buffer,
+				vertex_buffer.buffer,
+			};
 			vkCmdPushDescriptorSetWithTemplateKHR(
 					cmd_buf, mesh_program.descriptor_update_template, mesh_program.pipeline_layout, 0, descriptors);
 
 			vkCmdBindIndexBuffer(cmd_buf, index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
-			for (const auto& draw : draws)
-			{
-				vkCmdPushConstants(cmd_buf, mesh_program.pipeline_layout, mesh_program.push_constant_stages, 0,
-						sizeof(draw), &draw);
-				vkCmdDrawIndexed(cmd_buf, uint32_t(mesh.indices.size()), 1, 0, 0, 0);
-			}
+
+			vkCmdPushConstants(cmd_buf, mesh_program.pipeline_layout, mesh_program.push_constant_stages, 0,
+					sizeof(globals), &globals);
+
+			vkCmdDrawIndexedIndirect(cmd_buf, draw_buffer.buffer, offsetof(MeshDraw, command_indirect),
+					uint32_t(draws.size()), sizeof(MeshDraw));
 		}
 
 		vkCmdEndRenderPass(cmd_buf);
@@ -974,11 +949,12 @@ int main(int argc, char* argv[])
 			frame_avg_gpu = frame_avg_gpu * 0.95 + (frame_end_gpu - frame_begin_gpu) * 0.05;
 
 			const double tris_per_sec = double(draw_count) * double(mesh.indices.size() / 3) / (frame_avg_gpu * 1e-3);
+			const double kitens_per_sec = double(draw_count) / (frame_avg_gpu * 1e-3);
 
 			char title[256];
-			sprintf(title, "%s; CPU: %.1f ms; wait %.2f ms; GPU: %.3f ms; triangles %d; meshlets %d; %.2fB tris/s",
+			sprintf(title, "%s; CPU: %.1f ms; wait %.2f ms; GPU: %.3f ms; triangles %d; meshlets %d; %.2fB tris/s, %.1fM kittens/s",
 					mesh_shading_enabled ? "RTX" : "non-RTX", frame_avg_cpu, (wait_end - wait_begin), frame_avg_gpu,
-					(int)(mesh.indices.size() / 3), (int)(mesh.meshlets.size()), tris_per_sec * 1e-9f);
+					(int)(mesh.indices.size() / 3), (int)(mesh.meshlets.size()), tris_per_sec * 1e-9f, kitens_per_sec * 1e-6f);
 			glfwSetWindowTitle(window, title);
 		}
 	}
@@ -988,6 +964,8 @@ int main(int argc, char* argv[])
 	vkDestroyFramebuffer(device, target_fb, nullptr);
 	DestroyImage(device, depth_target);
 	DestroyImage(device, color_target);
+
+	DestroyBuffer(draw_buffer, device);
 
 	if (mesh_shading_supported)
 	{
@@ -1544,6 +1522,7 @@ VkDevice CreateDevice(VkInstance instance, VkPhysicalDevice physical_device, uin
 	VkPhysicalDeviceFeatures2 features2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
 	// VkPhysicalDeviceFeatures features = {};
 	// features2.features.vertexPipelineStoresAndAtomics = VK_TRUE;	// TODO, for us it works, not for arseny.
+	features2.features.multiDrawIndirect = VK_TRUE;
 
 	VkPhysicalDevice8BitStorageFeatures features_8bit = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_8BIT_STORAGE_FEATURES };
 	features_8bit.storageBuffer8BitAccess = VK_TRUE;

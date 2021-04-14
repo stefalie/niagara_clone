@@ -2,6 +2,7 @@
 
 #extension GL_NV_mesh_shader : require
 #extension GL_GOOGLE_include_directive : require
+#extension GL_ARB_shader_draw_parameters : require
 #define BALLOT 1
 #if BALLOT
 #extension GL_KHR_shader_subgroup_ballot : require
@@ -15,9 +16,9 @@
 
 layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
 
-layout(push_constant) uniform PushConstants
+layout(binding = 0) readonly buffer Draws
 {
-	MeshDraw mesh_draw;
+	MeshDraw draws[];
 };
 
 layout(binding = 1) readonly buffer Meshlets
@@ -71,7 +72,17 @@ bool ConeCull3(vec3 center, float radius, vec3 cone_axis, float cone_cutoff, vec
 	// dot(-view, cone_axis) > sin(cone_half_angle) + sin(view_cone_for_bounding_sphere_half_angle)
 	// dot(-view, cone_axis) > sin(cone_half_angle) + radius / length(center - camera_position)
 	// dot(-view, cone_axis) > cone_cutoff + radius / length(center - camera_position)
-	return dot(center - camera_position, cone_axis) >= cone_cutoff * length(center - camera_position) + radius;
+	return dot(center - camera_position, cone_axis) >=
+			cone_cutoff * length(center - camera_position) + sqrt(1.0 - cone_cutoff * cone_cutoff) * radius;
+
+	// NOTE: This still works btw (if you want to use it for real, precomute some of the terms):
+	// return dot(center - camera_position, cone_axis) >= cone_cutoff * length(center - camera_position) + sqrt(1.0 -
+	// cone_cutoff * cone_cutoff) * radius;
+	// Or with both terms corrected:
+	// const float sin_view_cone_half = radius / length(center - camera_position);
+	// const float cos_view_cone_half = sqrt(1.0 - sin_view_cone_half * sin_view_cone_half);
+	// return dot(center - camera_position, cone_axis) >=
+	//		cone_cutoff * length(center - camera_position) + sqrt(1.0 - cone_cutoff * cone_cutoff) * radius;
 }
 
 void main()
@@ -79,6 +90,7 @@ void main()
 	const uint gi = gl_WorkGroupID.x;
 	const uint ti = gl_LocalInvocationID.x;
 	const uint mi = gi * 32 + ti;
+	const MeshDraw mesh_draw = draws[gl_DrawIDARB];
 
 #if CULL
 	// TODO: Assumes subgroup size 32.
