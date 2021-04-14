@@ -5,40 +5,34 @@
 #pragma warning(disable : 26495)
 
 #include <algorithm>
-#include <vector>
 
 #include <fast_obj.h>
 #include <meshoptimizer.h>
 #include <volk.h>
 #include <GLFW/glfw3.h>
-#include <GLFW/glfw3native.h>
 
+#include "common.h"
+
+#include "device.h"
+#include "resources.h"
+#include "shaders.h"
+#include "swapchain.h"
+
+// Prevent warning from glm includes. Compiler bug, see here:
+// https://developercommunity.visualstudio.com/t/warning-c4103-in-visual-studio-166-update/1057589
+#pragma warning(push)
+#pragma warning(disable : 4103)
 #include <glm/ext/quaternion_float.hpp>
 #include <glm/ext/quaternion_transform.hpp>
 #include <glm/mat4x4.hpp>
 #include <glm/vec4.hpp>
+#pragma warning(pop)
 
-#include "common.h"
-#include "shaders.h"
-
-VkInstance CreateInstance();
-VkDebugReportCallbackEXT RegisterDebugCallback(VkInstance instance);
-VkDebugUtilsMessengerEXT RegisterDebugUtilsMessenger(VkInstance instance);
-// TODO remove here from pubic api
-uint32_t GetGraphicsFamilyIndex(VkPhysicalDevice physical_device);
-VkPhysicalDevice PickPhysicalDevice(VkInstance instance);
-VkDevice CreateDevice(VkInstance instance, VkPhysicalDevice physical_device, uint32_t family_index, bool rtx_supported);
-VkSurfaceKHR CreateSurface(VkInstance instance, GLFWwindow* window);
-VkFormat GetSwapchainFormat(VkPhysicalDevice physical_device, VkSurfaceKHR surface);
 VkSemaphore CreateSemaphore(VkDevice device);
 VkRenderPass CreateRenderPass(VkDevice device, VkFormat color_format, VkFormat depth_format);
 VkFramebuffer CreateFrameBuffer(VkDevice device, VkRenderPass render_pass, VkImageView color_view,
 		VkImageView depth_view, uint32_t width, uint32_t height);
-VkImageView CreateImageView(VkDevice device, VkImage image, VkFormat format, uint32_t mip_level, uint32_t level_count);
 VkCommandPool CreateCommandBufferPool(VkDevice device, uint32_t family_index);
-VkImageMemoryBarrier ImageBarrier(VkImage image, VkAccessFlags src_access_mask, VkAccessFlags dst_access_mask,
-		VkImageLayout old_layout, VkImageLayout new_layout, VkImageAspectFlags aspect_mask);
-VkBufferMemoryBarrier BufferBarrier(VkBuffer buffer, VkAccessFlags src_access_mask, VkAccessFlags dst_access_mask);
 
 struct Vertex
 {
@@ -106,8 +100,6 @@ struct Mesh
 	std::vector<Meshlet> meshlets;
 	std::vector<uint32_t> meshlet_data;
 };
-
-#define VSYNC 0
 
 bool mesh_shading_supported = false;
 bool mesh_shading_enabled = false;
@@ -280,198 +272,6 @@ static void BuildMeshlets(Mesh& mesh)
 		mesh.meshlets[i] = m;
 	}
 }
-
-struct Buffer
-{
-	VkBuffer buffer;
-	VkDeviceMemory memory;
-	void* data;
-	size_t size;
-};
-
-// TODO: Handle more gracefully.
-// Also consider accepting two sets of flags, required and optional ones.
-uint32_t SelectMemoryType(const VkPhysicalDeviceMemoryProperties& memory_properties, uint32_t memory_type_bits,
-		VkMemoryPropertyFlags flags)
-{
-	for (uint32_t i = 0; i < memory_properties.memoryTypeCount; ++i)
-	{
-		if (((memory_type_bits & (1 << i)) != 0) && ((memory_properties.memoryTypes[i].propertyFlags & flags) == flags))
-		{
-			return i;
-		}
-	}
-
-	printf("ERROR: No compatible memory type found.\n");
-	assert(false);
-	return ~0u;
-}
-
-void CreateBuffer(Buffer& result, VkDevice device, const VkPhysicalDeviceMemoryProperties& memory_properties,
-		size_t size, VkBufferUsageFlags usage, VkMemoryPropertyFlags memory_flags)
-{
-	VkBufferCreateInfo create_info = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
-	// create_info.flags;
-	create_info.size = size;
-	create_info.usage = usage;
-	// create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-	VkBuffer buffer = VK_NULL_HANDLE;
-	VK_CHECK(vkCreateBuffer(device, &create_info, nullptr, &buffer));
-	assert(buffer);
-
-	VkMemoryRequirements requirements;
-	vkGetBufferMemoryRequirements(device, buffer, &requirements);
-
-	const uint32_t memory_type = SelectMemoryType(memory_properties, requirements.memoryTypeBits, memory_flags);
-	// const uint32_t memory_type = SelectMemoryType(memory_properties, requirements.memoryTypeBits,
-	//		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-
-	// Potential flags:
-	//  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT = 0x00000001,
-	//  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT = 0x00000002,
-	//  VK_MEMORY_PROPERTY_HOST_COHERENT_BIT = 0x00000004,
-	//  VK_MEMORY_PROPERTY_HOST_CACHED_BIT = 0x00000008,
-	//  VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT = 0x00000010,
-	//  VK_MEMORY_PROPERTY_PROTECTED_BIT = 0x00000020,
-	//  VK_MEMORY_PROPERTY_DEVICE_COHERENT_BIT_AMD = 0x00000040,
-	//  VK_MEMORY_PROPERTY_DEVICE_UNCACHED_BIT_AMD = 0x00000080,
-
-	VkMemoryAllocateInfo alloc_info = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
-	alloc_info.allocationSize = requirements.size;
-	alloc_info.memoryTypeIndex = memory_type;
-	VkDeviceMemory memory = VK_NULL_HANDLE;
-	VK_CHECK(vkAllocateMemory(device, &alloc_info, nullptr, &memory));
-	assert(memory);
-
-	VK_CHECK(vkBindBufferMemory(device, buffer, memory, 0));
-
-	void* data = nullptr;
-	if (memory_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
-	{
-		// TODO: Do we ever unmap?
-		VK_CHECK(vkMapMemory(device, memory, 0, size, 0, &data));
-	}
-	// I think Areseny mentioned something along the lines: "host visible + coherent is similar to OpenGL's persistent
-	// (+ coherent?)".
-
-	result.buffer = buffer;
-	result.memory = memory;
-	result.size = size;
-	result.data = data;
-}
-
-void UploadBuffer(VkDevice device, VkCommandPool cmd_pool, VkCommandBuffer cmd_buf, VkQueue queue, const Buffer& buffer,
-		const Buffer& scratch, const void* data, size_t size)
-{
-	// TODO: This is submitting a command buffer and waiting for device idle, batch this.
-	assert(scratch.data);
-	assert(scratch.size >= size);
-	memcpy(scratch.data, data, size);
-
-	VK_CHECK(vkResetCommandPool(device, cmd_pool, 0));
-
-	VkCommandBufferBeginInfo begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
-	begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-	VK_CHECK(vkBeginCommandBuffer(cmd_buf, &begin_info));
-
-	VkBufferCopy region = { 0, 0, VkDeviceSize(size) };
-	vkCmdCopyBuffer(cmd_buf, scratch.buffer, buffer.buffer, 1, &region);
-
-	VkBufferMemoryBarrier copy_barrier =
-			BufferBarrier(buffer.buffer, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT);
-	vkCmdPipelineBarrier(cmd_buf, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-			VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 1, &copy_barrier, 0, nullptr);
-
-	VK_CHECK(vkEndCommandBuffer(cmd_buf));
-
-	VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
-	submit_info.pCommandBuffers = &cmd_buf;
-	submit_info.commandBufferCount = 1;
-	VK_CHECK(vkQueueSubmit(queue, 1, &submit_info, VK_NULL_HANDLE));
-	VK_CHECK(vkDeviceWaitIdle(device));
-}
-
-void DestroyBuffer(const Buffer& buffer, VkDevice device)
-{
-	// No need to unmap.
-	vkFreeMemory(device, buffer.memory, nullptr);
-	vkDestroyBuffer(device, buffer.buffer, nullptr);
-}
-
-struct Image
-{
-	VkImage image;
-	VkImageView image_view;
-	VkDeviceMemory memory;
-};
-
-Image CreateImage(VkDevice device, const VkPhysicalDeviceMemoryProperties& memory_properties, uint32_t width,
-		uint32_t height, uint32_t mip_levels, VkFormat format, VkImageUsageFlags usage)
-{
-	VkImageCreateInfo img_create_info = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
-	img_create_info.imageType = VK_IMAGE_TYPE_2D;
-	img_create_info.format = format;
-	img_create_info.extent = { width, height, 1 };
-	img_create_info.mipLevels = mip_levels;
-	img_create_info.arrayLayers = 1;
-	img_create_info.samples = VK_SAMPLE_COUNT_1_BIT;
-	img_create_info.tiling = VK_IMAGE_TILING_OPTIMAL;
-	img_create_info.usage = usage;
-	img_create_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-
-	VkImage image = VK_NULL_HANDLE;
-	VK_CHECK(vkCreateImage(device, &img_create_info, nullptr, &image));
-
-	VkMemoryRequirements requirements;
-	vkGetImageMemoryRequirements(device, image, &requirements);
-
-	const uint32_t memory_type_index =
-			SelectMemoryType(memory_properties, requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-	assert(memory_type_index != ~0u);
-
-	VkMemoryAllocateInfo alloc_info = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
-	alloc_info.allocationSize = requirements.size;
-	alloc_info.memoryTypeIndex = memory_type_index;
-	VkDeviceMemory memory = VK_NULL_HANDLE;
-	VK_CHECK(vkAllocateMemory(device, &alloc_info, nullptr, &memory));
-	assert(memory);
-
-	VK_CHECK(vkBindImageMemory(device, image, memory, 0));
-
-	Image result;
-	result.image = image;
-	result.image_view = CreateImageView(device, image, format, 0, mip_levels);
-	result.memory = memory;
-	return result;
-}
-
-void DestroyImage(VkDevice device, Image image)
-{
-	vkDestroyImageView(device, image.image_view, nullptr);
-	vkDestroyImage(device, image.image, nullptr);
-	vkFreeMemory(device, image.memory, nullptr);
-}
-
-struct Swapchain
-{
-	VkSwapchainKHR swapchain;
-
-	std::vector<VkImage> images;
-
-	uint32_t width;
-	uint32_t height;
-	uint32_t image_count;  // TODO: Redundant
-};
-
-VkSwapchainKHR CreateSwapchain(VkDevice device, VkSurfaceKHR surface, VkSurfaceCapabilitiesKHR surface_caps,
-		VkFormat format, uint32_t family_index, uint32_t width, uint32_t height, VkSwapchainKHR old_swapchain);
-// TODO: Make descriptor for all the inputs ...
-void CreateSwapchain(VkPhysicalDevice phsyical_device, VkDevice device, VkSurfaceKHR surface, VkFormat format,
-		uint32_t family_index, VkRenderPass render_pass, VkSwapchainKHR old_swapchain, Swapchain& result);
-bool ResizeSwapchainIfNecessary(VkPhysicalDevice physical_device, VkDevice device, VkSurfaceKHR surface,
-		VkFormat format, uint32_t family_index, VkRenderPass render_pass, Swapchain& result);
-void DestroySwapchain(VkDevice device, const Swapchain& swapchain);
 
 // TODO: Check if timing/querying capability is available.
 VkQueryPool CreateQueryPool(VkDevice device, uint32_t pool_size)
@@ -803,7 +603,7 @@ int main(int argc, char* argv[])
 		};
 		vkCmdPipelineBarrier(cmd_buf, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
 				VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
-				VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 0, nullptr, ARRAYSIZE(render_begin_barriers),
+				VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 0, nullptr, ARRAY_SIZE(render_begin_barriers),
 				render_begin_barriers);
 
 		VkClearValue clear_values[2];
@@ -816,7 +616,7 @@ int main(int argc, char* argv[])
 		pass_begin_info.framebuffer = target_fb;
 		pass_begin_info.renderArea.extent.width = swapchain.width;
 		pass_begin_info.renderArea.extent.height = swapchain.height;
-		pass_begin_info.clearValueCount = ARRAYSIZE(clear_values);
+		pass_begin_info.clearValueCount = ARRAY_SIZE(clear_values);
 		pass_begin_info.pClearValues = clear_values;
 
 		vkCmdBeginRenderPass(cmd_buf, &pass_begin_info, VK_SUBPASS_CONTENTS_INLINE);
@@ -889,7 +689,7 @@ int main(int argc, char* argv[])
 					VK_IMAGE_ASPECT_COLOR_BIT),
 		};
 		vkCmdPipelineBarrier(cmd_buf, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-				VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 0, nullptr, ARRAYSIZE(copy_barriers), copy_barriers);
+				VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 0, nullptr, ARRAY_SIZE(copy_barriers), copy_barriers);
 
 		VkImageCopy copy_region = {};
 		copy_region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -936,7 +736,7 @@ int main(int argc, char* argv[])
 
 		{  //  Profiling
 			uint64_t query_results[2];
-			VK_CHECK(vkGetQueryPoolResults(device, query_pool, 0, ARRAYSIZE(query_results), sizeof(query_results),
+			VK_CHECK(vkGetQueryPoolResults(device, query_pool, 0, ARRAY_SIZE(query_results), sizeof(query_results),
 					query_results, sizeof(query_results[0]), VK_QUERY_RESULT_64_BIT));
 
 			const double frame_begin_gpu =
@@ -952,9 +752,12 @@ int main(int argc, char* argv[])
 			const double kitens_per_sec = double(draw_count) / (frame_avg_gpu * 1e-3);
 
 			char title[256];
-			sprintf(title, "%s; CPU: %.1f ms; wait %.2f ms; GPU: %.3f ms; triangles %d; meshlets %d; %.2fB tris/s, %.1fM kittens/s",
+			sprintf(title,
+					"%s; CPU: %.1f ms; wait %.2f ms; GPU: %.3f ms; triangles %d; meshlets %d; %.2fB tris/s, %.1fM "
+					"kittens/s",
 					mesh_shading_enabled ? "RTX" : "non-RTX", frame_avg_cpu, (wait_end - wait_begin), frame_avg_gpu,
-					(int)(mesh.indices.size() / 3), (int)(mesh.meshlets.size()), tris_per_sec * 1e-9f, kitens_per_sec * 1e-6f);
+					(int)(mesh.indices.size() / 3), (int)(mesh.meshlets.size()), tris_per_sec * 1e-9f,
+					kitens_per_sec * 1e-6f);
 			glfwSetWindowTitle(window, title);
 		}
 	}
@@ -1022,596 +825,6 @@ int main(int argc, char* argv[])
 	return 0;
 }
 
-bool CheckLayerSupport(const std::vector<const char*>& layers)
-{
-	uint32_t layer_count = 0;
-	VK_CHECK(vkEnumerateInstanceLayerProperties(&layer_count, nullptr));
-	std::vector<VkLayerProperties> available_layers(layer_count);
-	VK_CHECK(vkEnumerateInstanceLayerProperties(&layer_count, available_layers.data()));
-
-	for (const char* requested_layer : layers)
-	{
-		bool found = false;
-
-		for (uint32_t i = 0; i < layer_count; ++i)
-		{
-			if (strcmp(requested_layer, available_layers[i].layerName) == 0)
-			{
-				found = true;
-				break;
-			}
-		}
-		if (!found)
-		{
-			return false;
-		}
-	}
-
-	return true;
-}
-
-VkInstance CreateInstance()
-{
-	// SHORTCUT: Check if version is available via vkEnumerateInstanceVersion()
-	VkApplicationInfo app_info = { VK_STRUCTURE_TYPE_APPLICATION_INFO };
-	app_info.apiVersion = VK_API_VERSION_1_2;
-	app_info.pApplicationName = "Niagara Clone Test";
-
-	VkInstanceCreateInfo instance_create_info = { VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
-	instance_create_info.pApplicationInfo = &app_info;
-
-	// SHORTCUT: Check availability of theses?
-	std::vector<const char*> debug_layers = {
-		"VK_LAYER_KHRONOS_validation",
-		// TODO: What's the difference? I believe above supersedes this.
-		//"VK_LAYER_LUNARG_standard_validation",
-		// TODO: Figure out how to use that.
-		// "VK_LAYER_RENDERDOC_Capture",
-
-	};
-#ifdef _DEBUG
-	// I don't think checking is required, it just won't be able to create the
-	// instance if requested layers are unavailable.
-	assert(CheckLayerSupport(debug_layers));
-
-	instance_create_info.ppEnabledLayerNames = debug_layers.data();
-	instance_create_info.enabledLayerCount = uint32_t(debug_layers.size());
-#endif
-
-	char const* const extensions[] = {
-		VK_KHR_SURFACE_EXTENSION_NAME,
-#ifdef VK_USE_PLATFORM_WIN32_KHR
-		VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
-#endif
-#ifdef _DEBUG
-		VK_EXT_DEBUG_REPORT_EXTENSION_NAME,
-		VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
-#endif
-	};
-	instance_create_info.ppEnabledExtensionNames = extensions;
-	instance_create_info.enabledExtensionCount = ARRAYSIZE(extensions);
-
-	VkInstance instance = VK_NULL_HANDLE;
-	VK_CHECK(vkCreateInstance(&instance_create_info, nullptr, &instance));
-
-	return instance;
-}
-
-static VkBool32 DebugReportCallback(VkDebugReportFlagsEXT flags, VkDebugReportObjectTypeEXT objectType, uint64_t object,
-		size_t location, int32_t messageCode, const char* pLayerPrefix, const char* pMessage, void* pUserData)
-{
-	// HACK, TODO, unclear if our bug or vulkan bug
-	// if (strstr(pMessage,
-	//			"Shader requires VkPhysicalDeviceFloat16Int8FeaturesKHR::shaderInt8 but is not enabled on the device"))
-	//{
-	//	return VK_FALSE;
-	//}
-	if (strstr(pMessage, "SPIR-V module not valid: Member index 0 is missing a location assignment"))
-	{
-		return VK_FALSE;
-	}
-
-	if ((flags & VK_DEBUG_REPORT_DEBUG_BIT_EXT) || (flags & VK_DEBUG_REPORT_INFORMATION_BIT_EXT))
-	{
-		return VK_FALSE;
-	}
-
-	const char* type = (flags & VK_DEBUG_REPORT_ERROR_BIT_EXT)                                        ? "ERROR" :
-			(flags & (VK_DEBUG_REPORT_WARNING_BIT_EXT | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT)) ? "WARNING" :
-			(flags & VK_DEBUG_REPORT_DEBUG_BIT_EXT)                                                   ? "DEBUG" :
-                                                                                                        "INFO";
-
-	char message[4096];
-	snprintf(message, ARRAYSIZE(message), "%s: %s\n\n", type, pMessage);
-
-	printf(message);
-#ifdef _WIN32
-	OutputDebugStringA(message);
-#endif
-
-	if (flags & VK_DEBUG_REPORT_ERROR_BIT_EXT)
-	{
-		assert(!"Validation error!");
-	}
-	return VK_FALSE;
-}
-
-static inline const char* GetVkObjectType(VkObjectType input_value)
-{
-	switch (input_value)
-	{
-#define CASE(type) \
-	case type:     \
-		return #type
-		CASE(VK_OBJECT_TYPE_UNKNOWN);
-		CASE(VK_OBJECT_TYPE_INSTANCE);
-		CASE(VK_OBJECT_TYPE_PHYSICAL_DEVICE);
-		CASE(VK_OBJECT_TYPE_DEVICE);
-		CASE(VK_OBJECT_TYPE_QUEUE);
-		CASE(VK_OBJECT_TYPE_SEMAPHORE);
-		CASE(VK_OBJECT_TYPE_COMMAND_BUFFER);
-		CASE(VK_OBJECT_TYPE_FENCE);
-		CASE(VK_OBJECT_TYPE_DEVICE_MEMORY);
-		CASE(VK_OBJECT_TYPE_BUFFER);
-		CASE(VK_OBJECT_TYPE_IMAGE);
-		CASE(VK_OBJECT_TYPE_EVENT);
-		CASE(VK_OBJECT_TYPE_QUERY_POOL);
-		CASE(VK_OBJECT_TYPE_BUFFER_VIEW);
-		CASE(VK_OBJECT_TYPE_IMAGE_VIEW);
-		CASE(VK_OBJECT_TYPE_SHADER_MODULE);
-		CASE(VK_OBJECT_TYPE_PIPELINE_CACHE);
-		CASE(VK_OBJECT_TYPE_PIPELINE_LAYOUT);
-		CASE(VK_OBJECT_TYPE_RENDER_PASS);
-		CASE(VK_OBJECT_TYPE_PIPELINE);
-		CASE(VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT);
-		CASE(VK_OBJECT_TYPE_SAMPLER);
-		CASE(VK_OBJECT_TYPE_DESCRIPTOR_POOL);
-		CASE(VK_OBJECT_TYPE_DESCRIPTOR_SET);
-		CASE(VK_OBJECT_TYPE_FRAMEBUFFER);
-		CASE(VK_OBJECT_TYPE_COMMAND_POOL);
-		CASE(VK_OBJECT_TYPE_SAMPLER_YCBCR_CONVERSION);
-		CASE(VK_OBJECT_TYPE_DESCRIPTOR_UPDATE_TEMPLATE);
-		CASE(VK_OBJECT_TYPE_SURFACE_KHR);
-		CASE(VK_OBJECT_TYPE_SWAPCHAIN_KHR);
-		CASE(VK_OBJECT_TYPE_DISPLAY_KHR);
-		CASE(VK_OBJECT_TYPE_DISPLAY_MODE_KHR);
-		CASE(VK_OBJECT_TYPE_DEBUG_REPORT_CALLBACK_EXT);
-		CASE(VK_OBJECT_TYPE_DEBUG_UTILS_MESSENGER_EXT);
-		CASE(VK_OBJECT_TYPE_ACCELERATION_STRUCTURE_KHR);
-		CASE(VK_OBJECT_TYPE_VALIDATION_CACHE_EXT);
-		CASE(VK_OBJECT_TYPE_PERFORMANCE_CONFIGURATION_INTEL);
-		CASE(VK_OBJECT_TYPE_DEFERRED_OPERATION_KHR);
-		CASE(VK_OBJECT_TYPE_INDIRECT_COMMANDS_LAYOUT_NV);
-		CASE(VK_OBJECT_TYPE_PRIVATE_DATA_SLOT_EXT);
-		// CASE(VK_OBJECT_TYPE_DESCRIPTOR_UPDATE_TEMPLATE_KHR);
-		// CASE(VK_OBJECT_TYPE_SAMPLER_YCBCR_CONVERSION_KHR);
-		// CASE(VK_OBJECT_TYPE_ACCELERATION_STRUCTURE_NV);
-		CASE(VK_OBJECT_TYPE_MAX_ENUM);
-#undef CASE
-	default:
-		return "Unhandled VkObjectType";
-	}
-}
-
-static VkBool32 DebugUtilsCallbackLunarG(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
-		VkDebugUtilsMessageTypeFlagsEXT messageType, const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
-		void* pUserData)
-{
-	// HACK, TODO, unclear if our bug or vulkan bug
-	// if (strstr(pCallbackData->pMessage,
-	//			"Shader requires VkPhysicalDeviceFloat16Int8FeaturesKHR::shaderInt8 but is not enabled on the device"))
-	//{
-	//	return VK_FALSE;
-	//}
-	if (strstr(pCallbackData->pMessage, "SPIR-V module not valid: Member index 0 is missing a location assignment"))
-	{
-		return VK_FALSE;
-	}
-
-	char prefix[64] = "";
-	char* message = new char[strlen(pCallbackData->pMessage) + 5000];
-	assert(message);
-
-	if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT)
-	{
-		strcat(prefix, "VERBOSE : ");
-	}
-	else if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT)
-	{
-		strcat(prefix, "INFO : ");
-	}
-	else if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
-	{
-		strcat(prefix, "WARNING : ");
-	}
-	else if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
-	{
-		strcat(prefix, "ERROR : ");
-	}
-
-	if (messageType & VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT)
-	{
-		strcat(prefix, "GENERAL");
-	}
-	else
-	{
-		if (messageType & VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT)
-		{
-			strcat(prefix, "VALIDATION");
-		}
-		if (messageType & VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT)
-		{
-			if (messageType & VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT)
-			{
-				strcat(prefix, "|");
-			}
-			strcat(prefix, "PERFORMANCE");
-		}
-	}
-
-	sprintf(message, "%s - Message Id Number: %d | Message Id Name: %s\n\t%s\n", prefix, pCallbackData->messageIdNumber,
-			pCallbackData->pMessageIdName, pCallbackData->pMessage);
-	if (pCallbackData->objectCount > 0)
-	{
-		char tmp_message[500];
-		sprintf(tmp_message, "\n\tObjects - %d\n", pCallbackData->objectCount);
-		strcat(message, tmp_message);
-		for (uint32_t object = 0; object < pCallbackData->objectCount; ++object)
-		{
-			if (NULL != pCallbackData->pObjects[object].pObjectName &&
-					strlen(pCallbackData->pObjects[object].pObjectName) > 0)
-			{
-				sprintf(tmp_message, "\t\tObject[%d] - %s, Handle %p, Name \"%s\"\n", object,
-						GetVkObjectType(pCallbackData->pObjects[object].objectType),
-						(void*)(pCallbackData->pObjects[object].objectHandle),
-						pCallbackData->pObjects[object].pObjectName);
-			}
-			else
-			{
-				sprintf(tmp_message, "\t\tObject[%d] - %s, Handle %p\n", object,
-						GetVkObjectType(pCallbackData->pObjects[object].objectType),
-						(void*)(pCallbackData->pObjects[object].objectHandle));
-			}
-			strcat(message, tmp_message);
-		}
-	}
-	if (pCallbackData->cmdBufLabelCount > 0)
-	{
-		char tmp_message[500];
-		sprintf(tmp_message, "\n\tCommand Buffer Labels - %d\n", pCallbackData->cmdBufLabelCount);
-		strcat(message, tmp_message);
-		for (uint32_t cmd_buf_label = 0; cmd_buf_label < pCallbackData->cmdBufLabelCount; ++cmd_buf_label)
-		{
-			sprintf(tmp_message, "\t\tLabel[%d] - %s { %f, %f, %f, %f}\n", cmd_buf_label,
-					pCallbackData->pCmdBufLabels[cmd_buf_label].pLabelName,
-					pCallbackData->pCmdBufLabels[cmd_buf_label].color[0],
-					pCallbackData->pCmdBufLabels[cmd_buf_label].color[1],
-					pCallbackData->pCmdBufLabels[cmd_buf_label].color[2],
-					pCallbackData->pCmdBufLabels[cmd_buf_label].color[3]);
-			strcat(message, tmp_message);
-		}
-	}
-
-	printf("%s\n", message);
-	fflush(stdout);
-
-	delete[] message;
-
-	if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
-	{
-		assert(!"Validation error!");
-	}
-	return false;
-}
-
-VkDebugReportCallbackEXT RegisterDebugCallback(VkInstance instance)
-{
-	assert(instance);
-
-	VkDebugReportCallbackCreateInfoEXT dbg_cb_create_info = { VK_STRUCTURE_TYPE_DEBUG_REPORT_CALLBACK_CREATE_INFO_EXT };
-	dbg_cb_create_info.flags =
-			// VK_DEBUG_REPORT_INFORMATION_BIT_EXT |
-			VK_DEBUG_REPORT_WARNING_BIT_EXT | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT |
-			VK_DEBUG_REPORT_ERROR_BIT_EXT | VK_DEBUG_REPORT_DEBUG_BIT_EXT;
-	dbg_cb_create_info.pfnCallback = &DebugReportCallback;
-	// dbg_cb_create_info.pUserData;
-
-	VkDebugReportCallbackEXT debug_callback = VK_NULL_HANDLE;
-	VK_CHECK(vkCreateDebugReportCallbackEXT(instance, &dbg_cb_create_info, nullptr, &debug_callback));
-	return debug_callback;
-}
-
-VkDebugUtilsMessengerEXT RegisterDebugUtilsMessenger(VkInstance instance)
-{
-	VkDebugUtilsMessengerCreateInfoEXT messenger_create_info = {
-		VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT
-	};
-	messenger_create_info.messageSeverity =
-			// VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT |
-			// VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
-			VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
-	messenger_create_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
-			VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
-	messenger_create_info.pfnUserCallback = &DebugUtilsCallbackLunarG;
-	// messenger_create_info.pUserData = nullptr;  // optional
-
-	VkDebugUtilsMessengerEXT debug_messenger = VK_NULL_HANDLE;
-	VK_CHECK(vkCreateDebugUtilsMessengerEXT(instance, &messenger_create_info, nullptr, &debug_messenger));
-	return debug_messenger;
-}
-
-VkBool32 SupportsPresentation(VkPhysicalDevice physical_device, uint32_t family_index)
-{
-#ifdef VK_USE_PLATFORM_WIN32_KHR
-	return vkGetPhysicalDeviceWin32PresentationSupportKHR(physical_device, family_index);
-#else
-#error Unsupported Platform
-#endif
-}
-
-uint32_t GetGraphicsFamilyIndex(VkPhysicalDevice physical_device)
-{
-	uint32_t queue_family_count = 0;
-	vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &queue_family_count, nullptr);
-
-	std::vector<VkQueueFamilyProperties> queue_family_properties(queue_family_count);
-	vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &queue_family_count, queue_family_properties.data());
-
-	for (uint32_t i = 0; i < queue_family_count; ++i)
-	{
-		if (queue_family_properties[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)
-		{
-			return i;
-		}
-	}
-
-	return VK_QUEUE_FAMILY_IGNORED;
-}
-
-VkPhysicalDevice PickPhysicalDevice(VkInstance instance)
-{
-	assert(instance);
-
-	VkPhysicalDevice discrete = VK_NULL_HANDLE;
-	VkPhysicalDevice fallback = VK_NULL_HANDLE;
-
-	uint32_t physical_device_count = 0;
-	VK_CHECK(vkEnumeratePhysicalDevices(instance, &physical_device_count, nullptr));
-	std::vector<VkPhysicalDevice> physical_devices(physical_device_count);
-	VK_CHECK(vkEnumeratePhysicalDevices(instance, &physical_device_count, physical_devices.data()));
-
-	VkPhysicalDevice ret = VK_NULL_HANDLE;
-
-
-	// Pick 1st discrete GPU.
-	for (uint32_t i = 0; i < physical_device_count; ++i)
-	{
-		// VkPhysicalDeviceProperties props;
-		// vkGetPhysicalDeviceProperties(physical_devices[i], &props);
-		VkPhysicalDeviceProperties2 props2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2 };
-		VkPhysicalDeviceSubgroupProperties subgroup_props = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES };
-		props2.pNext = &subgroup_props;
-		vkGetPhysicalDeviceProperties2(physical_devices[i], &props2);
-
-		VkPhysicalDeviceProperties& props = props2.properties;
-
-		printf("GPU %u: %s.\n", i, props.deviceName);
-
-		{  // Check for 8-bit int support.
-			VkPhysicalDeviceFeatures2 features2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
-			VkPhysicalDevice8BitStorageFeatures features_8bit = {
-				VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_8BIT_STORAGE_FEATURES
-			};
-			VkPhysicalDevice16BitStorageFeatures features_16bit = {
-				VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES
-			};
-			VkPhysicalDeviceShaderFloat16Int8FeaturesKHR features_f16i8 = {
-				VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES_KHR
-			};
-			// Don't pick device based on mesh shader capability. We
-			// want that to be toggable at run-time and also support non-RTX cards.
-			// That is now done in the main loop by enumerating the device extensions.
-			// I guess checking the device features would be equally good/okay.
-			// VkPhysicalDeviceMeshShaderFeaturesNV mesh_features = {
-			// 	VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_NV
-			// };
-
-			features2.pNext = &features_8bit;
-			features_8bit.pNext = &features_16bit;
-			features_16bit.pNext = &features_f16i8;
-			// features_f16i8.pNext = &mesh_features;
-			vkGetPhysicalDeviceFeatures2(physical_devices[i], &features2);
-
-
-			if (features_8bit.storageBuffer8BitAccess != VK_TRUE ||
-					features_8bit.uniformAndStorageBuffer8BitAccess != VK_TRUE ||
-					features_16bit.storageBuffer16BitAccess != VK_TRUE || features_f16i8.shaderFloat16 != VK_TRUE ||
-					features_f16i8.shaderInt8 != VK_TRUE
-					/* || mesh_features.taskShader != VK_TRUE || mesh_features.meshShader != VK_TRUE */
-			)
-			{
-				continue;
-			}
-		}
-
-		const uint32_t family_index = GetGraphicsFamilyIndex(physical_devices[i]);
-		if (family_index == VK_QUEUE_FAMILY_IGNORED)
-		{
-			continue;
-		}
-
-		if (!SupportsPresentation(physical_devices[i], family_index))
-		{
-			continue;
-		}
-
-		if (props.apiVersion < VK_API_VERSION_1_2)
-		{
-			continue;
-		}
-
-		// TODO: Unclear if I check for enough/too much subgroup stuff.
-		if (!(subgroup_props.supportedStages & VK_SHADER_STAGE_TASK_BIT_NV))
-		{
-			continue;
-		}
-		if (!(subgroup_props.supportedOperations & VK_SUBGROUP_FEATURE_ARITHMETIC_BIT) ||
-				!(subgroup_props.supportedOperations & VK_SUBGROUP_FEATURE_BALLOT_BIT))
-		{
-			continue;
-		}
-
-		if (!discrete && props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
-		{
-			discrete = physical_devices[i];
-		}
-
-		if (!fallback)
-		{
-			fallback = physical_devices[i];
-		}
-	}
-
-	VkPhysicalDevice result = discrete ? discrete : fallback;
-	if (result)
-	{
-		VkPhysicalDeviceProperties props;
-		vkGetPhysicalDeviceProperties(result, &props);
-		printf("Selected GPU: %s\n", props.deviceName);
-	}
-	else
-	{
-		printf("ERROR: No suitable GPUs found.\n");
-	}
-
-	return result;
-}
-
-VkDevice CreateDevice(VkInstance instance, VkPhysicalDevice physical_device, uint32_t family_index, bool rtx_supported)
-{
-	assert(instance);
-	assert(physical_device);
-
-	const float queue_priorities[] = { 1.0f };
-
-	VkDeviceQueueCreateInfo queue_create_info = { VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO };
-	queue_create_info.queueFamilyIndex = family_index;
-	queue_create_info.queueCount = 1;
-	queue_create_info.pQueuePriorities = queue_priorities;
-
-	std::vector<const char*> extensions = {
-		VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME,
-		VK_KHR_16BIT_STORAGE_EXTENSION_NAME,        // Using 16 bit in storage buffers
-		VK_KHR_8BIT_STORAGE_EXTENSION_NAME,         // Using 8 bit in storage buffers
-		VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME,  // Using 8/16 bit arithmetic in shaders
-		// VK_EXT_SHADER_SUBGROUP_BALLOT_EXTENSION_NAME,  // I don't think this is necessary
-		// VK_EXT_SHADER_SUBGROUP_VOTE_EXTENSION_NAME,  // I don't think this is necessary
-	};
-	if (rtx_supported)
-	{
-		extensions.push_back(VK_NV_MESH_SHADER_EXTENSION_NAME);
-	}
-
-	VkDeviceCreateInfo device_create_info = { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
-	device_create_info.queueCreateInfoCount = 1;
-	device_create_info.pQueueCreateInfos = &queue_create_info;
-	device_create_info.ppEnabledExtensionNames = extensions.data();
-	device_create_info.enabledExtensionCount = uint32_t(extensions.size());
-
-
-	VkPhysicalDeviceFeatures2 features2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
-	// VkPhysicalDeviceFeatures features = {};
-	// features2.features.vertexPipelineStoresAndAtomics = VK_TRUE;	// TODO, for us it works, not for arseny.
-	features2.features.multiDrawIndirect = VK_TRUE;
-
-	VkPhysicalDevice8BitStorageFeatures features_8bit = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_8BIT_STORAGE_FEATURES };
-	features_8bit.storageBuffer8BitAccess = VK_TRUE;
-	features_8bit.uniformAndStorageBuffer8BitAccess = VK_TRUE;  // TODO: the above alone doesn't work, but this does.
-	VkPhysicalDevice16BitStorageFeatures features_16bit = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES };
-	features_16bit.storageBuffer16BitAccess = VK_TRUE;
-
-	VkPhysicalDeviceShaderFloat16Int8FeaturesKHR features_f16i8 = {
-		VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES_KHR
-	};
-	features_f16i8.shaderFloat16 = VK_TRUE;
-	features_f16i8.shaderInt8 = VK_TRUE;
-
-	VkPhysicalDeviceMeshShaderFeaturesNV mesh_features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_NV };
-	mesh_features.taskShader = VK_TRUE;
-	mesh_features.meshShader = VK_TRUE;
-
-	// device_create_info.pEnabledFeatures = &features;
-	device_create_info.pNext = &features2;
-	features2.pNext = &features_8bit;
-	features_8bit.pNext = &features_16bit;
-	features_16bit.pNext = &features_f16i8;
-	if (rtx_supported)
-	{
-		features_f16i8.pNext = &mesh_features;
-	}
-
-	VkDevice device = VK_NULL_HANDLE;
-	VK_CHECK(vkCreateDevice(physical_device, &device_create_info, nullptr, &device));
-
-	return device;
-}
-
-VkSurfaceKHR CreateSurface(VkInstance instance, GLFWwindow* window)
-{
-	assert(instance);
-	assert(window);
-
-#ifdef VK_USE_PLATFORM_WIN32_KHR
-	VkWin32SurfaceCreateInfoKHR surface_create_info = { VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR };
-	surface_create_info.hinstance = GetModuleHandle(nullptr);
-	surface_create_info.hwnd = glfwGetWin32Window(window);
-	VkSurfaceKHR surface = 0;
-	VK_CHECK(vkCreateWin32SurfaceKHR(instance, &surface_create_info, nullptr, &surface));
-	return surface;
-#else
-#error Unsupported Platform
-#endif
-}
-
-VkFormat GetSwapchainFormat(VkPhysicalDevice physical_device, VkSurfaceKHR surface)
-{
-	uint32_t format_count = 0;
-	VK_CHECK(vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, surface, &format_count, nullptr));
-	assert(format_count > 0);
-
-	std::vector<VkSurfaceFormatKHR> formats(format_count);
-	VK_CHECK(vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, surface, &format_count, formats.data()));
-
-	// If this condition is satisfied, we are allowed to pick any format we like.
-	if (format_count == 1 && formats[0].format == VK_FORMAT_UNDEFINED)
-	{
-		return VK_FORMAT_R8G8B8A8_UNORM;
-	}
-
-	// Prefer high quality 32 bit UNORM format.
-	// TODO: Prefer one of these for the VK_FORMAT_UNDEFINED case.
-	for (uint32_t i = 0; i < format_count; ++i)
-	{
-		if (formats[i].format == VK_FORMAT_A2B10G10R10_UNORM_PACK32 ||
-				formats[i].format == VK_FORMAT_A2B10G10R10_UNORM_PACK32)
-		{
-			return formats[i].format;
-		}
-	}
-
-	// Prefer 32 bit UNORM format.
-	for (uint32_t i = 0; i < format_count; ++i)
-	{
-		if (formats[i].format == VK_FORMAT_R8G8B8A8_UNORM || formats[i].format == VK_FORMAT_B8G8R8A8_UNORM)
-		{
-			return formats[i].format;
-		}
-	}
-
-	// TODO: deal with format_count == 0 or formats[0].format = VK_FORMAT_UNDEFINED.
-	return formats[0].format;
-}
-
 VkSemaphore CreateSemaphore(VkDevice device)
 {
 	assert(device);
@@ -1657,7 +870,7 @@ VkRenderPass CreateRenderPass(VkDevice device, VkFormat color_format, VkFormat d
 	subpass.pDepthStencilAttachment = &depth_attachment_ref;
 
 	VkRenderPassCreateInfo pass_create_info = { VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
-	pass_create_info.attachmentCount = ARRAYSIZE(attachments);
+	pass_create_info.attachmentCount = ARRAY_SIZE(attachments);
 	pass_create_info.pAttachments = attachments;
 	pass_create_info.subpassCount = 1;
 	pass_create_info.pSubpasses = &subpass;
@@ -1677,7 +890,7 @@ VkFramebuffer CreateFrameBuffer(VkDevice device, VkRenderPass render_pass, VkIma
 
 	VkFramebufferCreateInfo fb_create_info = { VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO };
 	fb_create_info.renderPass = render_pass;
-	fb_create_info.attachmentCount = ARRAYSIZE(attachments);
+	fb_create_info.attachmentCount = ARRAY_SIZE(attachments);
 	fb_create_info.pAttachments = attachments;
 	fb_create_info.width = width;
 	fb_create_info.height = height;
@@ -1687,30 +900,6 @@ VkFramebuffer CreateFrameBuffer(VkDevice device, VkRenderPass render_pass, VkIma
 	VK_CHECK(vkCreateFramebuffer(device, &fb_create_info, nullptr, &framebuffer));
 	return framebuffer;
 };
-
-VkImageView CreateImageView(VkDevice device, VkImage image, VkFormat format, uint32_t mip_level, uint32_t level_count)
-{
-	assert(device);
-	assert(image);
-	assert(format);
-
-	VkImageAspectFlags aspect_mask =
-			(format == VK_FORMAT_D32_SFLOAT) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
-
-
-	VkImageViewCreateInfo img_view_create_info = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
-	img_view_create_info.image = image;
-	img_view_create_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-	img_view_create_info.format = format;
-	img_view_create_info.subresourceRange.aspectMask = aspect_mask;
-	img_view_create_info.subresourceRange.baseMipLevel = mip_level;
-	img_view_create_info.subresourceRange.levelCount = level_count;
-	img_view_create_info.subresourceRange.layerCount = 1;
-
-	VkImageView img_view = VK_NULL_HANDLE;
-	VK_CHECK(vkCreateImageView(device, &img_view_create_info, nullptr, &img_view));
-	return img_view;
-}
 
 VkCommandPool CreateCommandBufferPool(VkDevice device, uint32_t family_index)
 {
@@ -1725,160 +914,3 @@ VkCommandPool CreateCommandBufferPool(VkDevice device, uint32_t family_index)
 	return cmd_pool;
 }
 
-VkImageMemoryBarrier ImageBarrier(VkImage image, VkAccessFlags src_access_mask, VkAccessFlags dst_access_mask,
-		VkImageLayout old_layout, VkImageLayout new_layout, VkImageAspectFlags aspect_mask)
-{
-	VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
-	barrier.srcAccessMask = src_access_mask;
-	barrier.dstAccessMask = dst_access_mask;
-	barrier.oldLayout = old_layout;
-	barrier.newLayout = new_layout;
-	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	barrier.image = image;
-	barrier.subresourceRange.aspectMask = aspect_mask;
-	// barrier.subresourceRange.baseMipLevel;
-	barrier.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;    // NOTE: Some Android driver ignore this.
-																	  // barrier.subresourceRange.baseArrayLayer;
-	barrier.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;  // NOTE: Some Android driver ignore this.
-
-	return barrier;
-}
-VkBufferMemoryBarrier BufferBarrier(VkBuffer buffer, VkAccessFlags src_access_mask, VkAccessFlags dst_access_mask)
-{
-	VkBufferMemoryBarrier barrier = { VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER };
-	barrier.srcAccessMask = src_access_mask;
-	barrier.dstAccessMask = dst_access_mask;
-	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	barrier.buffer = buffer;
-	barrier.offset = 0;
-	barrier.size = VK_WHOLE_SIZE;  // Broken on some Android devices.
-	return barrier;
-}
-
-VkSwapchainKHR CreateSwapchain(VkDevice device, VkSurfaceKHR surface, VkSurfaceCapabilitiesKHR surface_caps,
-		VkFormat format, uint32_t family_index, uint32_t width, uint32_t height, VkSwapchainKHR old_swapchain)
-{
-	assert(device);
-	assert(surface);
-	assert(format);
-
-	const VkCompositeAlphaFlagBitsKHR surface_composite =
-			(surface_caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR) ?
-            VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR :
-			(surface_caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR) ?
-            VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR :
-			(surface_caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR) ?
-            VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR :
-            VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;  // One option is always guaranteed to be supported.
-
-	VkSwapchainCreateInfoKHR swapchain_create_info = { VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR };
-	swapchain_create_info.surface = surface;
-	swapchain_create_info.minImageCount = std::max(2u, surface_caps.minImageCount);
-	swapchain_create_info.imageFormat = format;
-	swapchain_create_info.imageColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
-	swapchain_create_info.imageExtent.width = width;
-	swapchain_create_info.imageExtent.height = height;
-	swapchain_create_info.imageArrayLayers = 1;
-	swapchain_create_info.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-	// TODO
-	swapchain_create_info.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT /*TODO*/;
-	swapchain_create_info.queueFamilyIndexCount = 1;
-	swapchain_create_info.pQueueFamilyIndices = &family_index;
-	// TODO: There was a validation error about the preTransform.
-	// Calling vkGetPhysicalDeviceSurfaceCapabilitiesKHR made it go away. Strange.
-	// I feel it should be:
-	swapchain_create_info.preTransform = surface_caps.currentTransform;
-	// swapchain_create_info.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
-	// NOTE: Android doesn't support opaque bit, it supports 0x2 or 0x4.
-	swapchain_create_info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;  // surface_composite;
-	// According to Arseny, querying for V-Sync on NVidia will tell you that
-	// it's not available even though it is, and if you enable it anyway, the
-	// validation layers will be upset.
-	swapchain_create_info.presentMode = VSYNC ? VK_PRESENT_MODE_FIFO_KHR : VK_PRESENT_MODE_IMMEDIATE_KHR;
-	swapchain_create_info.oldSwapchain = old_swapchain;
-
-	VkSwapchainKHR swapchain = VK_NULL_HANDLE;
-	VK_CHECK(vkCreateSwapchainKHR(device, &swapchain_create_info, nullptr, &swapchain));
-
-	return swapchain;
-}
-
-void CreateSwapchain(VkPhysicalDevice physical_device, VkDevice device, VkSurfaceKHR surface, VkFormat format,
-		uint32_t family_index, VkRenderPass render_pass, VkSwapchainKHR old_swapchain, Swapchain& result)
-{
-	// TODO: asserts?
-
-	VkSurfaceCapabilitiesKHR surface_caps;
-	VK_CHECK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, surface, &surface_caps));
-	const uint32_t width = surface_caps.currentExtent.width;
-	const uint32_t height = surface_caps.currentExtent.height;
-
-	// TODO: merge the overload in here?
-	VkSwapchainKHR swapchain =
-			CreateSwapchain(device, surface, surface_caps, format, family_index, width, height, old_swapchain);
-	assert(swapchain);
-
-	uint32_t image_count = 0;
-	VK_CHECK(vkGetSwapchainImagesKHR(device, swapchain, &image_count, nullptr));
-
-	std::vector<VkImage> images(image_count);
-	VK_CHECK(vkGetSwapchainImagesKHR(device, swapchain, &image_count, images.data()));
-
-	result.swapchain = swapchain;
-	result.images = images;
-	result.width = width;
-	result.height = height;
-	result.image_count = image_count;
-
-	// TODO: error handling?
-}
-
-bool ResizeSwapchainIfNecessary(VkPhysicalDevice physical_device, VkDevice device, VkSurfaceKHR surface,
-		VkFormat format, uint32_t family_index, VkRenderPass render_pass, Swapchain& result)
-{
-	// TODO: asserts
-	assert(result.swapchain);
-
-	// TODO: Handle minimization (crashes on NVidia)
-	// vulkan-tutorial does:
-	// int width = 0, height = 0;
-	// glfwGetFramebufferSize(window, &width, &height);
-	// while (width == 0 || height == 0)
-	// {
-	// 	glfwGetFramebufferSize(window, &width, &height);
-	// 	glfwWaitEvents();
-	// }
-	// TODO: https://vulkan-tutorial.com/Drawing_a_triangle/Swap_chain_recreation#page_Handling-resizes-explicitly
-	// vulkan-tutorial relies on the output of vkQueuePresentKHR
-
-	VkSurfaceCapabilitiesKHR surface_caps;
-	VK_CHECK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, surface, &surface_caps));
-	const uint32_t curr_width = surface_caps.currentExtent.width;
-	const uint32_t curr_height = surface_caps.currentExtent.height;
-
-	if (curr_width != result.width || curr_height != result.height)
-	{
-		// TODO: So much  copying.
-		Swapchain old = result;
-
-		// TODO: This will query the caps again.
-		CreateSwapchain(physical_device, device, surface, format, family_index, render_pass, old.swapchain, result);
-
-		VK_CHECK(vkDeviceWaitIdle(device));
-
-		DestroySwapchain(device, old);
-
-		return true;
-	}
-	else
-	{
-		return false;
-	}
-}
-
-void DestroySwapchain(VkDevice device, const Swapchain& swapchain)
-{
-	vkDestroySwapchainKHR(device, swapchain.swapchain, nullptr);
-}

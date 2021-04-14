@@ -33,12 +33,12 @@ struct Meshlet
 	// culling I guess).
 	vec3 center;
 	float radius;
-	//vec3 cone_axis;
-	//float cone_cutoff;
+	// vec3 cone_axis;
+	// float cone_cutoff;
 	int8_t cone_axis[3];
 	int8_t cone_cutoff;
-	//vec3 cone_apex;
-	//float padding;
+	// vec3 cone_apex;
+	// float padding;
 
 	uint data_offset;
 	uint8_t vertex_count;

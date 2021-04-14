@@ -4,6 +4,8 @@
 
 #include <volk.h>
 
+#include <vector>
+
 // SHORTCUT: Would need to be checked properly in production.
 #define VK_CHECK(call)            \
 	do                            \
@@ -12,7 +14,7 @@
 		assert(rc == VK_SUCCESS); \
 	} while (0)
 
-#ifndef ARRAYSIZE
-#define ARRAYSIZE(array) (sizeof(array) / sizeof((array)[0]))
+#ifndef ARRAY_SIZE
+#define ARRAY_SIZE(array) (sizeof(array) / sizeof((array)[0]))
 #endif
 

@@ -282,8 +282,8 @@ Program CreateProgram(VkDevice device, VkPipelineBindPoint bind_point, Shaders s
 	Program program = {};
 	program.descriptor_set_layout = CreateDescriptorSetLayout(device, shaders);
 	assert(program.descriptor_set_layout);
-	program.pipeline_layout = CreatePipelineLayout(
-			device, program.descriptor_set_layout, push_constant_stages, push_constant_size);
+	program.pipeline_layout =
+			CreatePipelineLayout(device, program.descriptor_set_layout, push_constant_stages, push_constant_size);
 	assert(program.pipeline_layout);
 	program.descriptor_update_template =
 			CreateUpdateTemplate(device, bind_point, program.descriptor_set_layout, program.pipeline_layout, shaders);
@@ -337,7 +337,7 @@ VkPipeline CreateGraphicsPipeline(VkDevice device, VkPipelineCache pipeline_cach
 	raster_state.polygonMode = VK_POLYGON_MODE_FILL;
 	// TODO: Count on 0 being ok for all this.
 	raster_state.cullMode = VK_CULL_MODE_BACK_BIT;  // From RH -> LH: change to front
-	//raster_state.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+	// raster_state.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 	// raster_state.frontFace = VK_FRONT_FACE_CLOCKWISE;
 	// raster_state.depthBiasEnable;
 	// raster_state.depthBiasConstantFactor;
@@ -373,7 +373,7 @@ VkPipeline CreateGraphicsPipeline(VkDevice device, VkPipelineCache pipeline_cach
 	VkPipelineColorBlendStateCreateInfo blend = { VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO };
 	// blend.logicOpEnable;
 	// blend.logicOp;
-	blend.attachmentCount = ARRAYSIZE(attachments);
+	blend.attachmentCount = ARRAY_SIZE(attachments);
 	blend.pAttachments = attachments;
 	// blend.blendConstants[4];
 
@@ -383,7 +383,7 @@ VkPipeline CreateGraphicsPipeline(VkDevice device, VkPipelineCache pipeline_cach
 	};
 
 	VkPipelineDynamicStateCreateInfo dynamic = { VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO };
-	dynamic.dynamicStateCount = ARRAYSIZE(dynamic_states);
+	dynamic.dynamicStateCount = ARRAY_SIZE(dynamic_states);
 	dynamic.pDynamicStates = dynamic_states;
 
 	VkGraphicsPipelineCreateInfo pipeline_create_info = { VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
