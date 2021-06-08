@@ -595,6 +595,10 @@ int main(int argc, char* argv[])
 		vkCmdResetQueryPool(cmd_buf, query_pool, 0, 128);
 		vkCmdWriteTimestamp(cmd_buf, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, query_pool, 0);
 
+
+		// TODO: I feel this is wrong and the dst access flags should be
+		// 1. VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT
+		// 2. VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT
 		VkImageMemoryBarrier render_begin_barriers[] = {
 			ImageBarrier(color_target.image, 0, 0, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 					VK_IMAGE_ASPECT_COLOR_BIT),
@@ -602,7 +606,8 @@ int main(int argc, char* argv[])
 					VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT),
 		};
 		vkCmdPipelineBarrier(cmd_buf, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-				VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+				VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
+						VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
 				VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 0, nullptr, ARRAY_SIZE(render_begin_barriers),
 				render_begin_barriers);
 
@@ -913,4 +918,3 @@ VkCommandPool CreateCommandBufferPool(VkDevice device, uint32_t family_index)
 
 	return cmd_pool;
 }
-

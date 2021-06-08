@@ -208,9 +208,9 @@ static VkPipelineLayout CreatePipelineLayout(VkDevice device, VkDescriptorSetLay
 	VkPipelineLayoutCreateInfo layout_create_info = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
 	layout_create_info.setLayoutCount = 1;
 	layout_create_info.pSetLayouts = &set_layout;
+	VkPushConstantRange range = {};
 	if (push_constant_size > 0)
 	{
-		VkPushConstantRange range = {};
 		range.stageFlags = push_constant_stages;
 		range.size = uint32_t(push_constant_size);
 		layout_create_info.pushConstantRangeCount = 1;
