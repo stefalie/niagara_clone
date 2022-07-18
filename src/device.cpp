@@ -387,9 +387,10 @@ VkPhysicalDevice PickPhysicalDevice(VkInstance instance)
 			VkPhysicalDevice8BitStorageFeatures features_8bit = {
 				VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_8BIT_STORAGE_FEATURES
 			};
-			VkPhysicalDevice16BitStorageFeatures features_16bit = {
-				VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES
-			};
+			// VkPhysicalDevice16BitStorageFeatures features_16bit = {
+			//	VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES
+			// };
+			VkPhysicalDeviceVulkan11Features features_11 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES };
 			VkPhysicalDeviceShaderFloat16Int8FeaturesKHR features_f16i8 = {
 				VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES_KHR
 			};
@@ -402,16 +403,19 @@ VkPhysicalDevice PickPhysicalDevice(VkInstance instance)
 			// };
 
 			features2.pNext = &features_8bit;
-			features_8bit.pNext = &features_16bit;
-			features_16bit.pNext = &features_f16i8;
-			// features_f16i8.pNext = &mesh_features;
+			// features_8bit.pNext = &features_16bit;
+			features_8bit.pNext = &features_11;
+			features_11.pNext = &features_f16i8;
+			// features_16bit.pNext = &features_f16i8;
+			//  features_f16i8.pNext = &mesh_features;
 			vkGetPhysicalDeviceFeatures2(physical_devices[i], &features2);
 
 
 			if (features_8bit.storageBuffer8BitAccess != VK_TRUE ||
 					features_8bit.uniformAndStorageBuffer8BitAccess != VK_TRUE ||
-					features_16bit.storageBuffer16BitAccess != VK_TRUE || features_f16i8.shaderFloat16 != VK_TRUE ||
-					features_f16i8.shaderInt8 != VK_TRUE
+					// features_16bit.storageBuffer16BitAccess != VK_TRUE ||
+					features_11.storageBuffer16BitAccess == VK_TRUE || features_11.shaderDrawParameters == VK_TRUE ||
+					features_f16i8.shaderFloat16 != VK_TRUE || features_f16i8.shaderInt8 != VK_TRUE
 					/* || mesh_features.taskShader != VK_TRUE || mesh_features.meshShader != VK_TRUE */
 			)
 			{
@@ -512,8 +516,12 @@ VkDevice CreateDevice(VkInstance instance, VkPhysicalDevice physical_device, uin
 	VkPhysicalDevice8BitStorageFeatures features_8bit = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_8BIT_STORAGE_FEATURES };
 	features_8bit.storageBuffer8BitAccess = VK_TRUE;
 	features_8bit.uniformAndStorageBuffer8BitAccess = VK_TRUE;  // TODO: the above alone doesn't work, but this does.
-	VkPhysicalDevice16BitStorageFeatures features_16bit = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES };
-	features_16bit.storageBuffer16BitAccess = VK_TRUE;
+	// VkPhysicalDevice16BitStorageFeatures features_16bit = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES
+	// }; features_16bit.storageBuffer16BitAccess = VK_TRUE;
+
+	VkPhysicalDeviceVulkan11Features features_11 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES };
+	features_11.storageBuffer16BitAccess = VK_TRUE;
+	features_11.shaderDrawParameters = VK_TRUE;
 
 	VkPhysicalDeviceShaderFloat16Int8FeaturesKHR features_f16i8 = {
 		VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES_KHR
@@ -528,8 +536,10 @@ VkDevice CreateDevice(VkInstance instance, VkPhysicalDevice physical_device, uin
 	// device_create_info.pEnabledFeatures = &features;
 	device_create_info.pNext = &features2;
 	features2.pNext = &features_8bit;
-	features_8bit.pNext = &features_16bit;
-	features_16bit.pNext = &features_f16i8;
+	// features_8bit.pNext = &features_16bit;
+	features_8bit.pNext = &features_11;
+	features_11.pNext = &features_f16i8;
+	// features_16bit.pNext = &features_f16i8;
 	if (rtx_supported)
 	{
 		features_f16i8.pNext = &mesh_features;
