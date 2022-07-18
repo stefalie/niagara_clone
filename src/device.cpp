@@ -414,7 +414,7 @@ VkPhysicalDevice PickPhysicalDevice(VkInstance instance)
 			if (features_8bit.storageBuffer8BitAccess != VK_TRUE ||
 					features_8bit.uniformAndStorageBuffer8BitAccess != VK_TRUE ||
 					// features_16bit.storageBuffer16BitAccess != VK_TRUE ||
-					features_11.storageBuffer16BitAccess == VK_TRUE || features_11.shaderDrawParameters == VK_TRUE ||
+					features_11.storageBuffer16BitAccess != VK_TRUE || features_11.shaderDrawParameters != VK_TRUE ||
 					features_f16i8.shaderFloat16 != VK_TRUE || features_f16i8.shaderInt8 != VK_TRUE
 					/* || mesh_features.taskShader != VK_TRUE || mesh_features.meshShader != VK_TRUE */
 			)
